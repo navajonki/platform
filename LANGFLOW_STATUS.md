@@ -155,10 +155,32 @@ components/operator/internal/handlers/sessions.go
 
 ### Testing Status
 
-**Phase 2 requires integration testing in a live cluster:**
+**Unit Tests Added:**
+- ✅ Backend session validation (6 tests in `session_validation_test.go`)
+  - Default type behavior (claude-code)
+  - LangFlow flowId validation (required, must exist)
+  - Error handling (missing flowId, invalid flowId)
+  - LangFlowClient availability handling
+- ✅ Operator session routing (3 tests in `sessions_test.go`)
+  - Type extraction and defaulting
+  - LangFlow type detection
+  - FlowID and flowInput extraction
+
+**Test Commands:**
+```bash
+# Backend tests
+cd components/backend
+go test ./tests/unit/handlers/... -v
+
+# Operator tests
+cd components/operator
+go test ./internal/handlers/... -v
+```
+
+**Integration testing requires live cluster:**
 - CRD validation: type field enum constraint
-- Backend: flowId validation with LangFlowClient
-- Operator: session type routing
+- Backend: flowId validation with real LangFlow
+- Operator: session type routing with Job creation
 - End-to-end: create langflow session → operator spawns job → status updates
 
 **Ready for manual testing:**
