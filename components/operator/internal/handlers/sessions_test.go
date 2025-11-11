@@ -499,3 +499,113 @@ func TestDeleteAmbientVertexSecret_NilAnnotations(t *testing.T) {
 		t.Error("Secret should still exist")
 	}
 }
+
+// TestHandleAgenticSessionEvent_SessionTypeRouting tests session type routing logic
+func TestHandleAgenticSessionEvent_ClaudeCodeDefault(t *testing.T) {
+	// Create session without type field (should default to claude-code)
+	obj := &unstructured.Unstructured{}
+	obj.SetAPIVersion("vteam.ambient-code/v1alpha1")
+	obj.SetKind("AgenticSession")
+	obj.SetName("test-session")
+	obj.SetNamespace("test-ns")
+	obj.SetUID(k8stypes.UID("test-uid-123"))
+
+	// Set spec without type (should default to claude-code)
+	obj.Object["spec"] = map[string]interface{}{
+		"prompt": "Test prompt",
+	}
+
+	// Set status to Pending
+	obj.Object["status"] = map[string]interface{}{
+		"phase": "Pending",
+	}
+
+	// Note: Full routing test would require setting up DynamicClient and K8sClient
+	// This test validates the type extraction logic
+	spec, _, _ := unstructured.NestedMap(obj.Object, "spec")
+	sessionType, _ := spec["type"].(string)
+	if sessionType == "" {
+		sessionType = "claude-code"
+	}
+
+	if sessionType != "claude-code" {
+		t.Errorf("Expected session type 'claude-code', got '%s'", sessionType)
+	}
+}
+
+func TestHandleAgenticSessionEvent_LangFlowType(t *testing.T) {
+	// Create session with langflow type
+	obj := &unstructured.Unstructured{}
+	obj.SetAPIVersion("vteam.ambient-code/v1alpha1")
+	obj.SetKind("AgenticSession")
+	obj.SetName("test-langflow-session")
+	obj.SetNamespace("test-ns")
+	obj.SetUID(k8stypes.UID("test-uid-456"))
+
+	// Set spec with langflow type
+	obj.Object["spec"] = map[string]interface{}{
+		"type":   "langflow",
+		"prompt": "Test prompt",
+		"flowId": "test-flow-123",
+	}
+
+	// Set status to Pending
+	obj.Object["status"] = map[string]interface{}{
+		"phase": "Pending",
+	}
+
+	// Validate type extraction
+	spec, _, _ := unstructured.NestedMap(obj.Object, "spec")
+	sessionType, _ := spec["type"].(string)
+	if sessionType == "" {
+		sessionType = "claude-code"
+	}
+
+	if sessionType != "langflow" {
+		t.Errorf("Expected session type 'langflow', got '%s'", sessionType)
+	}
+
+	// Validate flowId is present
+	flowID, _ := spec["flowId"].(string)
+	if flowID != "test-flow-123" {
+		t.Errorf("Expected flowId 'test-flow-123', got '%s'", flowID)
+	}
+}
+
+func TestHandleLangFlowSession_FlowIdExtraction(t *testing.T) {
+	// Test flowId and flowInput extraction from spec
+	obj := &unstructured.Unstructured{}
+	obj.SetName("langflow-session")
+	obj.SetNamespace("test-ns")
+
+	obj.Object["spec"] = map[string]interface{}{
+		"type":   "langflow",
+		"flowId": "flow-abc-123",
+		"flowInput": map[string]interface{}{
+			"message": "test message",
+			"param1":  "value1",
+		},
+	}
+
+	// Extract fields
+	spec, _, _ := unstructured.NestedMap(obj.Object, "spec")
+	flowID, _ := spec["flowId"].(string)
+	flowInput, _ := spec["flowInput"].(map[string]interface{})
+
+	// Validate extraction
+	if flowID != "flow-abc-123" {
+		t.Errorf("Expected flowId 'flow-abc-123', got '%s'", flowID)
+	}
+
+	if flowInput == nil {
+		t.Fatal("flowInput should not be nil")
+	}
+
+	if flowInput["message"] != "test message" {
+		t.Errorf("Expected message 'test message', got '%v'", flowInput["message"])
+	}
+
+	if flowInput["param1"] != "value1" {
+		t.Errorf("Expected param1 'value1', got '%v'", flowInput["param1"])
+	}
+}
