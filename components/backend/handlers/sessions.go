@@ -316,6 +316,33 @@ func CreateSession(c *gin.Context) {
 		timeout = *req.Timeout
 	}
 
+	// Set default session type if not provided (backward compatibility)
+	sessionType := req.Type
+	if sessionType == "" {
+		sessionType = "claude-code"
+	}
+
+	// Validate LangFlow-specific requirements
+	if sessionType == "langflow" {
+		// FlowID is required for langflow sessions
+		if req.FlowID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "flowId required for langflow sessions"})
+			return
+		}
+
+		// Validate that the flow exists in LangFlow
+		if LangFlowClient != nil {
+			_, err := LangFlowClient.GetFlow(req.FlowID)
+			if err != nil {
+				log.Printf("Invalid flowId %s: %v", req.FlowID, err)
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid flowId: %v", err)})
+				return
+			}
+		} else {
+			log.Println("Warning: LangFlowClient not configured, skipping flowId validation")
+		}
+	}
+
 	// Generate unique name
 	timestamp := time.Now().Unix()
 	name := fmt.Sprintf("agentic-session-%d", timestamp)
@@ -341,21 +368,33 @@ func CreateSession(c *gin.Context) {
 		metadata["annotations"] = annotations
 	}
 
+	// Build spec with session type and LangFlow fields
+	specMap := map[string]interface{}{
+		"type":        sessionType,
+		"prompt":      req.Prompt,
+		"displayName": req.DisplayName,
+		"project":     project,
+		"llmSettings": map[string]interface{}{
+			"model":       llmSettings.Model,
+			"temperature": llmSettings.Temperature,
+			"maxTokens":   llmSettings.MaxTokens,
+		},
+		"timeout": timeout,
+	}
+
+	// Add LangFlow-specific fields if this is a langflow session
+	if sessionType == "langflow" {
+		specMap["flowId"] = req.FlowID
+		if req.FlowInput != nil {
+			specMap["flowInput"] = req.FlowInput
+		}
+	}
+
 	session := map[string]interface{}{
 		"apiVersion": "vteam.ambient-code/v1alpha1",
 		"kind":       "AgenticSession",
 		"metadata":   metadata,
-		"spec": map[string]interface{}{
-			"prompt":      req.Prompt,
-			"displayName": req.DisplayName,
-			"project":     project,
-			"llmSettings": map[string]interface{}{
-				"model":       llmSettings.Model,
-				"temperature": llmSettings.Temperature,
-				"maxTokens":   llmSettings.MaxTokens,
-			},
-			"timeout": timeout,
-		},
+		"spec":       specMap,
 		"status": map[string]interface{}{
 			"phase": "Pending",
 		},

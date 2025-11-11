@@ -10,6 +10,12 @@ type AgenticSession struct {
 }
 
 type AgenticSessionSpec struct {
+	// Session type: claude-code (default) or langflow
+	Type                 string             `json:"type,omitempty"`
+	// LangFlow-specific fields
+	FlowID               string                 `json:"flowId,omitempty"`
+	FlowInput            map[string]interface{} `json:"flowInput,omitempty"`
+	// Existing fields
 	Prompt               string             `json:"prompt" binding:"required"`
 	Interactive          bool               `json:"interactive,omitempty"`
 	DisplayName          string             `json:"displayName"`
@@ -50,6 +56,8 @@ type AgenticSessionStatus struct {
 	CompletionTime *string `json:"completionTime,omitempty"`
 	JobName        string  `json:"jobName,omitempty"`
 	StateDir       string  `json:"stateDir,omitempty"`
+	// LangFlow execution tracking
+	FlowExecutionID string `json:"flowExecutionId,omitempty"`
 	// Result summary fields from runner
 	Subtype      string                 `json:"subtype,omitempty"`
 	IsError      bool                   `json:"is_error,omitempty"`
@@ -61,6 +69,11 @@ type AgenticSessionStatus struct {
 }
 
 type CreateAgenticSessionRequest struct {
+	// Session type and LangFlow fields
+	Type      string                 `json:"type,omitempty"`
+	FlowID    string                 `json:"flowId,omitempty"`
+	FlowInput map[string]interface{} `json:"flowInput,omitempty"`
+	// Existing fields
 	Prompt          string       `json:"prompt" binding:"required"`
 	DisplayName     string       `json:"displayName,omitempty"`
 	LLMSettings     *LLMSettings `json:"llmSettings,omitempty"`

@@ -19,6 +19,24 @@ spec:
             required:
             - prompt
             properties:
+              # Session type: claude-code or langflow
+              type:
+                type: string
+                enum:
+                - "claude-code"
+                - "langflow"
+                default: "claude-code"
+                description: "Execution type: claude-code (markdown agents) or langflow (visual workflows)"
+
+              # LangFlow-specific fields
+              flowId:
+                type: string
+                description: "LangFlow flow ID (required when type=langflow)"
+
+              flowInput:
+                type: object
+                description: "Input parameters for the LangFlow flow execution"
+                x-kubernetes-preserve-unknown-fields: true
               # Multiple-repo configuration (new unified mapping)
               repos:
                 type: array
@@ -129,6 +147,10 @@ spec:
               stateDir:
                 type: string
                 description: "Directory path where session state files are stored"
+              # LangFlow execution tracking
+              flowExecutionId:
+                type: string
+                description: "LangFlow execution session ID (when type=langflow)"
               # Result summary fields from the runner's ResultMessage
               subtype:
                 type: string

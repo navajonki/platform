@@ -188,16 +188,45 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 		return nil
 	}
 
+	// Get session type from spec (default to claude-code for backward compatibility)
+	spec, _, _ := unstructured.NestedMap(currentObj.Object, "spec")
+	sessionType, _ := spec["type"].(string)
+	if sessionType == "" {
+		sessionType = "claude-code"
+	}
+
+	// Route to appropriate handler based on session type
+	switch sessionType {
+	case "langflow":
+		return handleLangFlowSession(currentObj)
+	case "claude-code":
+		return handleClaudeCodeSession(currentObj)
+	default:
+		err := fmt.Errorf("unsupported session type: %s", sessionType)
+		log.Printf("Error: %v", err)
+		updateAgenticSessionStatus(sessionNamespace, name, map[string]interface{}{
+			"phase":   "Error",
+			"message": err.Error(),
+		})
+		return err
+	}
+}
+
+// handleClaudeCodeSession processes claude-code type sessions (existing logic)
+func handleClaudeCodeSession(obj *unstructured.Unstructured) error {
+	name := obj.GetName()
+	sessionNamespace := obj.GetNamespace()
+
 	// Check for session continuation (parent session ID)
 	parentSessionID := ""
 	// Check annotations first
-	annotations := currentObj.GetAnnotations()
+	annotations := obj.GetAnnotations()
 	if val, ok := annotations["vteam.ambient-code/parent-session-id"]; ok {
 		parentSessionID = strings.TrimSpace(val)
 	}
 	// Check environmentVariables as fallback
 	if parentSessionID == "" {
-		spec, _, _ := unstructured.NestedMap(currentObj.Object, "spec")
+		spec, _, _ := unstructured.NestedMap(obj.Object, "spec")
 		if envVars, found, _ := unstructured.NestedStringMap(spec, "environmentVariables"); found {
 			if val, ok := envVars["PARENT_SESSION_ID"]; ok {
 				parentSessionID = strings.TrimSpace(val)
@@ -223,8 +252,8 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 			{
 				APIVersion: "vteam.ambient-code/v1",
 				Kind:       "AgenticSession",
-				Name:       currentObj.GetName(),
-				UID:        currentObj.GetUID(),
+				Name:       obj.GetName(),
+				UID:        obj.GetUID(),
 				Controller: boolPtr(true),
 				// BlockOwnerDeletion intentionally omitted to avoid permission issues
 			},
@@ -247,8 +276,8 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 				{
 					APIVersion: "vteam.ambient-code/v1",
 					Kind:       "AgenticSession",
-					Name:       currentObj.GetName(),
-					UID:        currentObj.GetUID(),
+					Name:       obj.GetName(),
+					UID:        obj.GetUID(),
 					Controller: boolPtr(true),
 				},
 			}
@@ -275,7 +304,7 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 			// Create context with timeout for secret copy operation
 			copyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if err := copySecretToNamespace(copyCtx, ambientVertexSecret, sessionNamespace, currentObj); err != nil {
+			if err := copySecretToNamespace(copyCtx, ambientVertexSecret, sessionNamespace, obj); err != nil {
 				return fmt.Errorf("failed to copy %s secret from %s to %s (CLAUDE_CODE_USE_VERTEX=1): %w", types.AmbientVertexSecretName, operatorNamespace, sessionNamespace, err)
 			}
 			ambientVertexSecretCopied = true
@@ -301,7 +330,7 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 	}
 
 	// Extract spec information from the fresh object
-	spec, _, _ := unstructured.NestedMap(currentObj.Object, "spec")
+	spec, _, _ := unstructured.NestedMap(obj.Object, "spec")
 	prompt, _, _ := unstructured.NestedString(spec, "prompt")
 	timeout, _, _ := unstructured.NestedInt64(spec, "timeout")
 	interactive, _, _ := unstructured.NestedBool(spec, "interactive")
@@ -358,8 +387,8 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 				{
 					APIVersion: "vteam.ambient-code/v1",
 					Kind:       "AgenticSession",
-					Name:       currentObj.GetName(),
-					UID:        currentObj.GetUID(),
+					Name:       obj.GetName(),
+					UID:        obj.GetUID(),
 					Controller: boolPtr(true),
 					// Remove BlockOwnerDeletion to avoid permission issues
 					// BlockOwnerDeletion: boolPtr(true),
@@ -501,7 +530,7 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 								// Secret contains: 'k8s-token' (for CR updates)
 								// Prefer annotated secret name; fallback to deterministic name
 								secretName := ""
-								if meta, ok := currentObj.Object["metadata"].(map[string]interface{}); ok {
+								if meta, ok := obj.Object["metadata"].(map[string]interface{}); ok {
 									if anns, ok := meta["annotations"].(map[string]interface{}); ok {
 										if v, ok := anns["ambient-code.io/runner-token-secret"].(string); ok && strings.TrimSpace(v) != "" {
 											secretName = strings.TrimSpace(v)
@@ -519,7 +548,7 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 									}},
 								})
 								// Add CR-provided envs last (override base when same key)
-								if spec, ok := currentObj.Object["spec"].(map[string]interface{}); ok {
+								if spec, ok := obj.Object["spec"].(map[string]interface{}); ok {
 									// Inject REPOS_JSON and MAIN_REPO_NAME from spec.repos and spec.mainRepoName if present
 									if repos, ok := spec["repos"].([]interface{}); ok && len(repos) > 0 {
 										// Use a minimal JSON serialization via fmt (we'll rely on client to pass REPOS_JSON too)
@@ -698,6 +727,132 @@ func handleAgenticSessionEvent(obj *unstructured.Unstructured) error {
 	if _, serr := config.K8sClient.CoreV1().Services(sessionNamespace).Create(context.TODO(), svc, v1.CreateOptions{}); serr != nil && !errors.IsAlreadyExists(serr) {
 		log.Printf("Failed to create per-job content service for %s: %v", name, serr)
 	}
+
+	// Start monitoring the job
+	go monitorJob(jobName, name, sessionNamespace)
+
+	return nil
+}
+
+// handleLangFlowSession processes langflow type sessions
+func handleLangFlowSession(obj *unstructured.Unstructured) error {
+	name := obj.GetName()
+	sessionNamespace := obj.GetNamespace()
+
+	// Extract flowId and flowInput from spec
+	spec, _, _ := unstructured.NestedMap(obj.Object, "spec")
+	flowID, _ := spec["flowId"].(string)
+	if flowID == "" {
+		err := fmt.Errorf("flowId is required for langflow sessions but was empty")
+		log.Printf("Error: %v", err)
+		updateAgenticSessionStatus(sessionNamespace, name, map[string]interface{}{
+			"phase":   "Error",
+			"message": err.Error(),
+		})
+		return err
+	}
+
+	flowInput, _ := spec["flowInput"].(map[string]interface{})
+	flowInputJSON, _ := json.Marshal(flowInput)
+
+	// Create Job with langflow-runner
+	jobName := fmt.Sprintf("%s-job", name)
+
+	// Check if job already exists
+	_, err := config.K8sClient.BatchV1().Jobs(sessionNamespace).Get(context.TODO(), jobName, v1.GetOptions{})
+	if err == nil {
+		log.Printf("Job %s already exists for LangFlow AgenticSession %s", jobName, name)
+		return nil
+	}
+
+	// Create Job for langflow-runner
+	job := &batchv1.Job{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      jobName,
+			Namespace: sessionNamespace,
+			Labels: map[string]string{
+				"agentic-session": name,
+				"app":             "langflow-runner",
+				"session-type":    "langflow",
+			},
+			OwnerReferences: []v1.OwnerReference{
+				{
+					APIVersion: "vteam.ambient-code/v1",
+					Kind:       "AgenticSession",
+					Name:       obj.GetName(),
+					UID:        obj.GetUID(),
+					Controller: boolPtr(true),
+				},
+			},
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:            int32Ptr(3),
+			ActiveDeadlineSeconds:   int64Ptr(3600), // 1 hour timeout
+			TTLSecondsAfterFinished: int32Ptr(600),  // Cleanup after 10 minutes
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: v1.ObjectMeta{
+					Labels: map[string]string{
+						"agentic-session": name,
+						"app":             "langflow-runner",
+						"session-type":    "langflow",
+					},
+				},
+				Spec: corev1.PodSpec{
+					RestartPolicy:                corev1.RestartPolicyNever,
+					AutomountServiceAccountToken: boolPtr(false),
+					Containers: []corev1.Container{
+						{
+							Name:  "langflow-runner",
+							Image: "vteam-langflow-runner:latest",
+							ImagePullPolicy: corev1.PullNever,
+							Env: []corev1.EnvVar{
+								{Name: "FLOW_ID", Value: flowID},
+								{Name: "FLOW_INPUT", Value: string(flowInputJSON)},
+								{Name: "LANGFLOW_URL", Value: "http://langflow.ambient-code.svc.cluster.local:7860"},
+								{
+									Name: "LANGFLOW_API_KEY",
+									ValueFrom: &corev1.EnvVarSource{
+										SecretKeyRef: &corev1.SecretKeySelector{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: "langflow-secret",
+											},
+											Key: "api-key",
+										},
+									},
+								},
+								{Name: "SESSION_NAME", Value: name},
+								{Name: "NAMESPACE", Value: sessionNamespace},
+							},
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: boolPtr(false),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	createdJob, err := config.K8sClient.BatchV1().Jobs(sessionNamespace).Create(context.TODO(), job, v1.CreateOptions{})
+	if err != nil {
+		log.Printf("Failed to create LangFlow job %s: %v", jobName, err)
+		updateAgenticSessionStatus(sessionNamespace, name, map[string]interface{}{
+			"phase":   "Error",
+			"message": fmt.Sprintf("Failed to create job: %v", err),
+		})
+		return err
+	}
+
+	log.Printf("Created LangFlow job %s for AgenticSession %s", jobName, name)
+
+	// Update status
+	updateAgenticSessionStatus(sessionNamespace, name, map[string]interface{}{
+		"phase":   "Running",
+		"jobName": createdJob.Name,
+	})
 
 	// Start monitoring the job
 	go monitorJob(jobName, name, sessionNamespace)
