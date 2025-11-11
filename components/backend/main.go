@@ -11,6 +11,7 @@ import (
 	"ambient-code-backend/handlers"
 	"ambient-code-backend/jira"
 	"ambient-code-backend/k8s"
+	"ambient-code-backend/langflow"
 	"ambient-code-backend/server"
 	"ambient-code-backend/types"
 	"ambient-code-backend/websocket"
@@ -114,6 +115,22 @@ func main() {
 
 	// Initialize websocket package
 	websocket.StateBaseDir = server.StateBaseDir
+
+	// Initialize LangFlow client
+	langflowURL := os.Getenv("LANGFLOW_URL")
+	langflowAPIKey := os.Getenv("LANGFLOW_API_KEY")
+	if langflowURL == "" {
+		langflowURL = "http://langflow.ambient-code.svc.cluster.local:7860"
+	}
+	if langflowURL != "" {
+		handlers.LangFlowClient = langflow.NewClient(langflowURL, langflowAPIKey)
+		log.Printf("LangFlow client initialized with URL: %s", langflowURL)
+		if langflowAPIKey == "" {
+			log.Println("Warning: LANGFLOW_API_KEY not set (may work for local dev)")
+		}
+	} else {
+		log.Println("LangFlow integration disabled: LANGFLOW_URL not configured")
+	}
 
 	// Normal server mode - create closure to capture jiraHandler
 	registerRoutesWithJira := func(r *gin.Engine) {

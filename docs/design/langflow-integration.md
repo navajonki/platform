@@ -4,6 +4,222 @@
 
 This document outlines the design and implementation plan for integrating LangFlow as an alternate flow orchestration mechanism within the Ambient Code Platform. This integration will enable users to create visual AI agent workflows using LangFlow's drag-and-drop interface while maintaining unified execution tracking through the platform's AgenticSession architecture.
 
+## User Flows
+
+This section describes the complete user experience for LangFlow integration. These flows are the primary guide for implementation.
+
+### Flow 1: Creating a LangFlow Workflow (in LangFlow UI)
+
+**Actor:** Developer/User
+
+**Prerequisites:**
+- LangFlow is deployed and accessible
+- User has access to LangFlow UI via route
+
+**Steps:**
+1. User navigates to LangFlow UI (separate from Ambient Code UI)
+2. User clicks "New Flow" or similar button
+3. User drags and drops components to build workflow:
+   - Add LLM nodes (Claude, GPT, etc.)
+   - Add prompt templates
+   - Connect components
+   - Configure inputs and outputs
+4. User saves the flow with a meaningful name and description
+5. Flow is now stored in LangFlow's database
+6. **Flow automatically becomes available in Ambient Code UI** (no export/sync action required)
+
+**Expected Result:**
+- Flow appears in Ambient Code's agent selection dropdown
+- Flow is labeled as "LangFlow" type to distinguish from markdown agents
+
+### Flow 2: Running a LangFlow Agent from Ambient Code UI
+
+**Actor:** Developer/User
+
+**Prerequisites:**
+- At least one LangFlow flow exists
+- User has access to Ambient Code project
+
+**Steps:**
+1. User navigates to Ambient Code UI → Project → New Session
+2. User sees "Agent Type" selector with two options:
+   - **Claude Code Agent (Markdown)** - existing functionality
+   - **LangFlow Visual Workflow** - new option
+3. User selects "LangFlow Visual Workflow"
+4. UI shows dropdown of available LangFlow flows
+   - Each flow shows: Name, Description, Last Updated timestamp
+   - Flows are labeled with "LangFlow" badge/icon
+5. User selects desired flow (e.g., "Repository Analysis Workflow")
+6. UI displays flow details card showing:
+   - Flow name
+   - Flow description
+   - Last updated date
+   - (Future: Flow input parameters)
+7. User configures flow inputs (Phase 1: simple text inputs, Future: dynamic form)
+8. User clicks "Create Session"
+9. Session is created and starts executing
+10. User is redirected to session detail page
+11. User sees execution status:
+    - "Queued" → "Running" → "Completed" or "Failed"
+    - Real-time logs from LangFlow execution
+    - Flow outputs displayed when complete
+
+**Expected Result:**
+- Session executes the LangFlow workflow
+- User can monitor progress in Ambient Code UI
+- Results are stored in AgenticSession status
+- Session appears in session list with "LangFlow" label
+
+### Flow 3: Viewing LangFlow Session Results
+
+**Actor:** Developer/User
+
+**Prerequisites:**
+- LangFlow session has completed execution
+
+**Steps:**
+1. User navigates to Project → Sessions
+2. User sees list of sessions with clear type indicator:
+   - Claude Code sessions: "Claude Code" badge
+   - LangFlow sessions: "LangFlow" badge + flow name
+3. User clicks on LangFlow session
+4. Session detail page shows:
+   - Flow name (e.g., "Repository Analysis Workflow")
+   - Flow description
+   - Execution status (Completed/Failed)
+   - Execution duration
+   - Input parameters used
+   - Flow outputs (structured data from LangFlow)
+   - Execution logs
+5. User can view, copy, or export results
+
+**Expected Result:**
+- Clear visibility into what flow ran
+- Easy access to results
+- Consistent UX with Claude Code sessions
+
+### Flow 4: Discovering Available Agents
+
+**Actor:** Developer/User
+
+**Prerequisites:**
+- User wants to see what agents are available
+
+**Steps:**
+1. User navigates to Project → Agents or similar page
+2. User sees unified list of all available agents:
+   - **Markdown Agents Section**
+     - Product Manager
+     - Architect
+     - Staff Engineer
+     - (etc.)
+   - **LangFlow Workflows Section** (clearly separated)
+     - Repository Analysis Workflow [LangFlow]
+     - Code Review Workflow [LangFlow]
+     - (etc.)
+3. Each LangFlow agent shows:
+   - Name
+   - Description
+   - "LangFlow" badge/icon
+   - Last updated timestamp
+   - "Edit in LangFlow" link (opens LangFlow UI)
+4. User can click "Edit in LangFlow" to modify the workflow
+5. Changes are immediately reflected in Ambient Code (next session creation)
+
+**Expected Result:**
+- Single pane of glass for all agents
+- Clear distinction between agent types
+- Easy discovery of LangFlow flows
+
+### Flow 5: Error Handling - LangFlow Unavailable
+
+**Actor:** Developer/User
+
+**Prerequisites:**
+- LangFlow service is down or unreachable
+
+**Steps:**
+1. User navigates to Project → New Session
+2. User sees "Agent Type" selector
+3. "LangFlow Visual Workflow" option is **disabled/grayed out**
+4. Warning icon appears next to LangFlow option
+5. Alert message displays: "LangFlow service is not available. Please contact your administrator."
+6. User can still create Claude Code sessions (unaffected)
+
+**Expected Result:**
+- Graceful degradation
+- Clear error messaging
+- No broken UX
+
+### Flow 6: Error Handling - Flow Execution Failure
+
+**Actor:** Developer/User
+
+**Prerequisites:**
+- User starts a LangFlow session
+- Flow execution encounters an error
+
+**Steps:**
+1. User creates LangFlow session as normal
+2. Session status shows "Running"
+3. Flow encounters error in LangFlow (e.g., invalid API key, timeout)
+4. Session status updates to "Failed"
+5. Session detail page shows:
+   - Error message from LangFlow
+   - Timestamp of failure
+   - Partial outputs (if any)
+   - Link to LangFlow execution logs (if available)
+6. User can retry by creating new session with same flow
+
+**Expected Result:**
+- Clear error visibility
+- Actionable error messages
+- No stuck "Running" sessions
+
+### UI Mockup Concepts
+
+**Session Type Selector:**
+```
+┌─────────────────────────────────────────┐
+│ Agent Type                              │
+├─────────────────────────────────────────┤
+│ ○ Claude Code Agent (Markdown)         │
+│   Traditional markdown-based agents     │
+│                                         │
+│ ○ LangFlow Visual Workflow ✓           │
+│   Drag-and-drop workflow builder       │
+└─────────────────────────────────────────┘
+```
+
+**Flow Selector:**
+```
+┌─────────────────────────────────────────┐
+│ Select Flow                             │
+├─────────────────────────────────────────┤
+│ [Dropdown: Choose a workflow...     ▼] │
+│                                         │
+│ ┌─────────────────────────────────────┐ │
+│ │ Repository Analysis Workflow        │ │
+│ │ Analyzes repository structure...    │ │
+│ │ Last updated: 2 hours ago           │ │
+│ │                            [LangFlow]│ │
+│ └─────────────────────────────────────┘ │
+└─────────────────────────────────────────┘
+```
+
+**Session List with Type Badges:**
+```
+┌───────────────────────────────────────────────────┐
+│ Sessions                                          │
+├───────────────────────────────────────────────────┤
+│ analyze-repo-main      [LangFlow] ✓ Completed    │
+│   Repository Analysis Workflow                    │
+│                                                   │
+│ refactor-auth          [Claude Code] ⏳ Running   │
+│   Staff Engineer                                  │
+└───────────────────────────────────────────────────┘
+```
+
 ## Background
 
 ### Current State
@@ -20,6 +236,7 @@ The Ambient Code Platform currently uses markdown-based agent definitions stored
 3. Maintain unified monitoring and execution tracking
 4. Leverage LangFlow's full feature set without reimplementation
 5. Keep architecture simple and maintainable
+6. **Seamless UX: Flows configured in LangFlow automatically appear as agents in Ambient Code**
 
 ## Architecture
 

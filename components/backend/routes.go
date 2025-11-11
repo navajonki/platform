@@ -97,6 +97,11 @@ func registerRoutes(r *gin.Engine, jiraHandler *jira.Handler) {
 		// Cluster info endpoint (public, no auth required)
 		api.GET("/cluster-info", handlers.GetClusterInfo)
 
+		// LangFlow integration endpoints
+		api.GET("/langflow/health", handlers.LangFlowHealth)
+		api.GET("/langflow/flows", handlers.ListLangFlowFlows)
+		api.GET("/langflow/flows/:id", handlers.GetLangFlowFlow)
+
 		api.GET("/projects", handlers.ListProjects)
 		api.POST("/projects", handlers.CreateProject)
 		api.GET("/projects/:projectName", handlers.GetProject)
