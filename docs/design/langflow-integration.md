@@ -1609,8 +1609,85 @@ Not applicable - no existing data to migrate. This is a new capability.
 - Ambient Code Platform Architecture (see `CLAUDE.md`)
 - AgenticSession CRD Specification
 
+## Implementation Status
+
+### ✅ Phase 1: Foundation (COMPLETED)
+
+**Deployment:**
+- ✅ LangFlow deployed to Minikube with persistent storage
+- ✅ Kubernetes manifests created (deployment, service, ingress)
+- ✅ Fixed PORT environment variable conflict
+- ✅ LangFlow running and accessible at http://langflow.local
+
+**LangFlow Runner:**
+- ✅ Python runner component created (`components/runners/langflow-runner/`)
+- ✅ Kubernetes API integration for status updates
+- ✅ Docker image built and loaded into Minikube
+- ✅ Error handling and timeout support (1 hour)
+
+**Backend API:**
+- ✅ LangFlow Go client implemented (`components/backend/langflow/client.go`)
+- ✅ Three API endpoints added:
+  - `GET /api/langflow/health`
+  - `GET /api/langflow/flows`
+  - `GET /api/langflow/flows/:id`
+- ✅ Client initialization in main.go
+- ✅ Route registration complete
+
+**Testing:**
+- ✅ 30 unit tests (basic + edge cases + contract validation)
+- ✅ All tests passing (0 failures)
+- ✅ Coverage includes: network errors, timeouts, malformed JSON, concurrent requests, special characters
+
+**Files Created/Modified:**
+- `components/manifests/langflow/` (deployment, ingress, README)
+- `components/runners/langflow-runner/` (run.py, Dockerfile, Makefile, README)
+- `components/backend/langflow/client.go`
+- `components/backend/handlers/langflow.go`
+- `components/backend/routes.go`
+- `components/backend/main.go`
+- `components/backend/tests/unit/langflow/` (3 test files)
+- `components/backend/tests/contract/langflow/handlers_test.go`
+
+### 🚧 Phase 2: Backend Integration (NEXT)
+
+**Remaining Tasks:**
+1. **Extend AgenticSession CRD**
+   - Add `type` field (default: "claude-code", options: "claude-code" | "langflow")
+   - Add `flowId` field (string, required when type="langflow")
+   - Add `flowInput` field (map[string]interface{}, optional)
+   - Add `flowExecutionId` to status
+   - Update CRD manifests in `components/manifests/base/crds/`
+
+2. **Update Session Creation Handler**
+   - Validate `type` field
+   - Validate `flowId` exists in LangFlow when type="langflow"
+   - Store flowId and flowInput in CR spec
+
+3. **Operator Session Routing**
+   - Update `components/operator/internal/handlers/sessions.go`
+   - Add session type detection
+   - Route to appropriate handler (existing Claude Code or new LangFlow)
+   - Create `HandleLangFlowSession` function
+
+4. **LangFlow Session Handler**
+   - Create Job for langflow-runner
+   - Set environment variables (FLOW_ID, FLOW_INPUT, etc.)
+   - Mount langflow-secret for API key
+   - Start monitoring goroutine
+
+5. **Testing**
+   - Unit tests for CRD validation
+   - Operator routing tests
+   - Integration test for complete flow execution
+
+### 📋 Phase 3: Frontend UI (PENDING)
+
+### 📋 Phase 4: Polish & Documentation (PENDING)
+
 ## Change Log
 
 | Date | Version | Author | Changes |
 |------|---------|--------|---------|
 | 2025-01-10 | 1.0 | Claude Code | Initial design document |
+| 2025-01-11 | 1.1 | Claude Code | Phase 1 completed - deployment, runner, backend client, comprehensive tests |
