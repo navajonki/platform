@@ -52,7 +52,7 @@ spec:
         - name: LANGFLOW_DATABASE_URL
           value: "sqlite:////data/langflow.db"
         - name: LANGFLOW_AUTO_LOGIN
-          value: "false"
+          value: "true"
         - name: LANGFLOW_STORE_ENVIRONMENT_VARIABLES
           value: "true"
         # Enable API access
