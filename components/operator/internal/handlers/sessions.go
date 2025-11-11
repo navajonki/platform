@@ -323,7 +323,7 @@ func handleClaudeCodeSession(obj *unstructured.Unstructured) error {
 	jobName := fmt.Sprintf("%s-job", name)
 
 	// Check if job already exists in the session's namespace
-	_, err = config.K8sClient.BatchV1().Jobs(sessionNamespace).Get(context.TODO(), jobName, v1.GetOptions{})
+	_, err := config.K8sClient.BatchV1().Jobs(sessionNamespace).Get(context.TODO(), jobName, v1.GetOptions{})
 	if err == nil {
 		log.Printf("Job %s already exists for AgenticSession %s", jobName, name)
 		return nil
