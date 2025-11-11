@@ -56,16 +56,20 @@ subjects:
   name: local-dev-user
   namespace: ambient-code
 ---
-# ClusterRole for cross-namespace operations (minimal)
+# ClusterRole for cross-namespace operations (for local dev)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: local-dev-namespace-viewer
 rules:
-# Only allow viewing namespaces (for project list)
+# Allow viewing namespaces (for project list)
 - apiGroups: [""]
   resources: ["namespaces"]
   verbs: ["get", "list", "watch"]
+# Allow access to vteam resources across all namespaces (local dev only)
+- apiGroups: ["vteam.ambient-code"]
+  resources: ["projectsettings", "agenticsessions", "rfeworkflows"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 # ClusterRoleBinding for namespace viewing
 apiVersion: rbac.authorization.k8s.io/v1

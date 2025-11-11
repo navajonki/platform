@@ -66,6 +66,18 @@ func Run(registerRoutes RouterFunc) error {
 // forwardedIdentityMiddleware populates Gin context from common OAuth proxy headers
 func forwardedIdentityMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// In local dev with disabled auth, set default user identity
+		disableAuth := os.Getenv("DISABLE_AUTH")
+		log.Printf("forwardedIdentityMiddleware: DISABLE_AUTH=%s", disableAuth)
+		if disableAuth == "true" {
+			log.Printf("forwardedIdentityMiddleware: Setting default local-dev-user identity")
+			c.Set("userID", "local-dev-user")
+			c.Set("userName", "local-dev-user")
+			c.Set("userEmail", "local-dev@example.com")
+			c.Next()
+			return
+		}
+
 		if v := c.GetHeader("X-Forwarded-User"); v != "" {
 			c.Set("userID", v)
 		}

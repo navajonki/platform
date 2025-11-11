@@ -237,6 +237,13 @@ func ValidateProjectContext() gin.HandlerFunc {
 				c.Request.Header.Set("Authorization", "Bearer "+qp)
 			}
 		}
+
+		// In local dev mode, inject mock token if no token present
+		if isLocalDevEnvironment() && c.GetHeader("Authorization") == "" && c.GetHeader("X-Forwarded-Access-Token") == "" {
+			c.Request.Header.Set("Authorization", "Bearer mock-token-for-local-dev")
+			log.Printf("Local dev mode: injecting mock token for %s", c.FullPath())
+		}
+
 		// Require user/API key token; do not fall back to service account
 		if c.GetHeader("Authorization") == "" && c.GetHeader("X-Forwarded-Access-Token") == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "User token required"})
