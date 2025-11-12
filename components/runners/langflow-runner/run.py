@@ -10,8 +10,8 @@ import sys
 import json
 import requests
 import time
-from kubernetes import client, config
 from typing import Dict, Any, Optional
+from urllib.parse import urljoin
 
 
 def main() -> int:
@@ -190,56 +190,53 @@ def execute_langflow_flow(
 
 def update_session_status(namespace: str, name: str, updates: Dict[str, Any]) -> None:
     """
-    Update AgenticSession status using Kubernetes API
+    Update AgenticSession status via backend HTTP API
 
     Args:
-        namespace: Namespace of the session
+        namespace: Namespace of the session (project)
         name: Name of the session
         updates: Dictionary of status fields to update
     """
     try:
-        # Load in-cluster config
-        config.load_incluster_config()
+        # Get backend API URL from environment
+        backend_url = os.environ.get('BACKEND_API_URL')
+        if not backend_url:
+            print("WARNING: BACKEND_API_URL not set, cannot update status", file=sys.stderr)
+            return
 
-        api = client.CustomObjectsApi()
+        # Get BOT_TOKEN for authentication
+        token = os.environ.get('BOT_TOKEN', '').strip()
+        if not token:
+            print("WARNING: BOT_TOKEN not set, cannot update status", file=sys.stderr)
+            return
 
-        # Get current session
-        try:
-            session = api.get_namespaced_custom_object(
-                group="vteam.ambient-code",
-                version="v1alpha1",
-                namespace=namespace,
-                plural="agenticsessions",
-                name=name
-            )
-        except client.exceptions.ApiException as e:
-            if e.status == 404:
-                print(f"WARNING: Session {namespace}/{name} not found, cannot update status", file=sys.stderr)
-                return
-            raise
+        # Build status update URL: /api/projects/:project/sessions/:sessionName/status
+        url = urljoin(backend_url, f"/projects/{namespace}/sessions/{name}/status")
 
-        # Initialize status if not present
-        if "status" not in session:
-            session["status"] = {}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
 
-        # Apply updates
-        for key, value in updates.items():
-            session["status"][key] = value
+        print(f"Updating session status via {url}")
+        print(f"Status updates: {json.dumps(updates, indent=2)}")
 
-        # Patch status subresource
-        api.patch_namespaced_custom_object_status(
-            group="vteam.ambient-code",
-            version="v1alpha1",
-            namespace=namespace,
-            plural="agenticsessions",
-            name=name,
-            body=session
+        response = requests.put(
+            url,
+            headers=headers,
+            json=updates,
+            timeout=10
         )
 
-        print(f"Updated session status: {json.dumps(updates, indent=2)}")
+        if response.status_code == 200:
+            print("Session status updated successfully")
+        else:
+            print(f"WARNING: Status update returned {response.status_code}: {response.text}", file=sys.stderr)
 
+    except requests.exceptions.RequestException as e:
+        print(f"WARNING: Failed to update session status: {e}", file=sys.stderr)
     except Exception as e:
-        print(f"ERROR: Failed to update session status: {e}", file=sys.stderr)
+        print(f"ERROR: Unexpected error updating session status: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
 

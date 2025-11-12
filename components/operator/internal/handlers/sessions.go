@@ -728,8 +728,8 @@ func handleClaudeCodeSession(obj *unstructured.Unstructured) error {
 		log.Printf("Failed to create per-job content service for %s: %v", name, serr)
 	}
 
-	// Start monitoring the job
-	go monitorJob(jobName, name, sessionNamespace)
+	// Start monitoring the job (claude-code type)
+	go monitorJob(jobName, name, sessionNamespace, "claude-code")
 
 	return nil
 }
@@ -754,6 +754,9 @@ func handleLangFlowSession(obj *unstructured.Unstructured) error {
 
 	flowInput, _ := spec["flowInput"].(map[string]interface{})
 	flowInputJSON, _ := json.Marshal(flowInput)
+
+	// Load config for this session
+	appConfig := config.LoadConfig()
 
 	// Create Job with langflow-runner
 	jobName := fmt.Sprintf("%s-job", name)
@@ -803,7 +806,7 @@ func handleLangFlowSession(obj *unstructured.Unstructured) error {
 					Containers: []corev1.Container{
 						{
 							Name:  "langflow-runner",
-							Image: "vteam-langflow-runner:latest",
+							Image: "localhost/vteam-langflow-runner:latest",
 							ImagePullPolicy: corev1.PullNever,
 							Env: []corev1.EnvVar{
 								{Name: "FLOW_ID", Value: flowID},
@@ -822,6 +825,14 @@ func handleLangFlowSession(obj *unstructured.Unstructured) error {
 								},
 								{Name: "SESSION_NAME", Value: name},
 								{Name: "NAMESPACE", Value: sessionNamespace},
+								{Name: "BACKEND_API_URL", Value: fmt.Sprintf("http://backend-service.%s.svc.cluster.local:8080/api", appConfig.BackendNamespace)},
+								{
+									Name: "BOT_TOKEN",
+									ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{Name: fmt.Sprintf("ambient-runner-token-%s", name)},
+										Key:                  "k8s-token",
+									}},
+								},
 							},
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: boolPtr(false),
@@ -854,17 +865,23 @@ func handleLangFlowSession(obj *unstructured.Unstructured) error {
 		"jobName": createdJob.Name,
 	})
 
-	// Start monitoring the job
-	go monitorJob(jobName, name, sessionNamespace)
+	// Start monitoring the job (langflow type)
+	go monitorJob(jobName, name, sessionNamespace, "langflow")
 
 	return nil
 }
 
-func monitorJob(jobName, sessionName, sessionNamespace string) {
-	log.Printf("Starting job monitoring for %s (session: %s/%s)", jobName, sessionNamespace, sessionName)
+func monitorJob(jobName, sessionName, sessionNamespace, sessionType string) {
+	log.Printf("Starting job monitoring for %s (session: %s/%s, type: %s)", jobName, sessionNamespace, sessionName, sessionType)
 
-	// Main is now the content container to keep service alive
-	mainContainerName := "ambient-content"
+	// Determine main container based on session type
+	var mainContainerName string
+	if sessionType == "langflow" {
+		mainContainerName = "langflow-runner"
+	} else {
+		// claude-code type: Main is the content container to keep service alive
+		mainContainerName = "ambient-content"
+	}
 
 	// Track if we've verified owner references
 	ownerRefsChecked := false
@@ -1023,7 +1040,9 @@ func monitorJob(jobName, sessionName, sessionNamespace string) {
 		pod := pods.Items[0]
 
 		// Check for pod-level failures (ImagePullBackOff, CrashLoopBackOff, etc.)
-		if pod.Status.Phase == corev1.PodFailed {
+		// For LangFlow sessions, pod.Status.Phase will be Failed even on success (single container exits)
+		// So we skip this check for langflow and rely on container exit code instead
+		if sessionType != "langflow" && pod.Status.Phase == corev1.PodFailed {
 			gvr := types.GetAgenticSessionResource()
 			if currentObj, err := config.DynamicClient.Resource(gvr).Namespace(sessionNamespace).Get(context.TODO(), sessionName, v1.GetOptions{}); err == nil {
 				currentPhase := ""
@@ -1116,7 +1135,14 @@ func monitorJob(jobName, sessionName, sessionNamespace string) {
 		}
 
 		// Check runner container status (the actual work is done here, not in content container)
-		runnerContainerName := "ambient-code-runner"
+		// For claude-code: check ambient-code-runner
+		// For langflow: check langflow-runner (which is also mainContainerName)
+		var runnerContainerName string
+		if sessionType == "langflow" {
+			runnerContainerName = "langflow-runner"
+		} else {
+			runnerContainerName = "ambient-code-runner"
+		}
 		runnerStatus := getContainerStatusByName(&pod, runnerContainerName)
 		if runnerStatus != nil && runnerStatus.State.Terminated != nil {
 			term := runnerStatus.State.Terminated

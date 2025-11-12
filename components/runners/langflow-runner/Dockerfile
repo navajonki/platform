@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir \
     kubernetes==28.1.0
 
 # Copy runner script
-COPY langflow-runner/run.py /app/run.py
+COPY run.py /app/run.py
 RUN chmod +x /app/run.py
 
 # Run as non-root user

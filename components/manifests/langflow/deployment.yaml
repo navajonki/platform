@@ -50,14 +50,31 @@ spec:
           name: http
         env:
         - name: LANGFLOW_DATABASE_URL
-          value: "sqlite:////data/langflow.db"
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@langflow-postgres:5432/$(POSTGRES_DB)"
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: langflow-postgres
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: langflow-postgres
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: langflow-postgres
+              key: POSTGRES_DB
         - name: LANGFLOW_AUTO_LOGIN
+          value: "true"
+        - name: LANGFLOW_SKIP_AUTH_AUTO_LOGIN
           value: "true"
         - name: LANGFLOW_STORE_ENVIRONMENT_VARIABLES
           value: "true"
-        # Enable API access
+        # Disable API key requirement for local dev (using SKIP_AUTH_AUTO_LOGIN)
         - name: LANGFLOW_ENABLE_API_KEY
-          value: "true"
+          value: "false"
         # Override PORT env var set by Kubernetes service
         - name: LANGFLOW_PORT
           value: "7860"
@@ -66,11 +83,11 @@ spec:
           mountPath: /data
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "250m"
+            memory: "1Gi"
+            cpu: "500m"
           limits:
-            memory: "2Gi"
-            cpu: "1000m"
+            memory: "4Gi"
+            cpu: "2000m"
         livenessProbe:
           httpGet:
             path: /health
