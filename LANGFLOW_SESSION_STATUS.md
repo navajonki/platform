@@ -98,6 +98,31 @@
 - Operator: `make build-operator CONTAINER_ENGINE=docker`
 - LangFlow Runner: `docker build -t localhost/vteam-langflow-runner:latest .`
 
+### 7. Messages Endpoint Support for Text Output
+**Problem**: Messages endpoint only supported Chat Output components (`artifacts.message`), failed for Text Output components (`artifacts.text.raw`)
+**Fix**: Updated backend handler to try both paths:
+**Location**: `components/backend/handlers/sessions.go:2678-2689`
+```go
+// Try Chat Output format first (artifacts.message)
+message, found, _ := unstructured.NestedString(artifacts, "message")
+
+// If not found, try Text Output format (artifacts.text.raw)
+if !found {
+    message, found, _ = unstructured.NestedString(artifacts, "text", "raw")
+}
+```
+
+### 8. Local Development Environment Variables
+**Problem**: Backend deployment missing DISABLE_AUTH and ENVIRONMENT env vars for local dev
+**Fix**: Added to backend-deployment.yaml:
+**Location**: `components/manifests/base/backend-deployment.yaml:35-39`
+```yaml
+- name: DISABLE_AUTH
+  value: "true"
+- name: ENVIRONMENT
+  value: "local"
+```
+
 ## 📦 Container Images (in minikube)
 
 ```
@@ -287,6 +312,7 @@ kubectl label namespace YOUR_PROJECT ambient-code.io/managed=true
 - ✅ Flow execution via LangFlow API
 - ✅ Status updates to backend
 - ✅ Results displayed in Ambient UI
+- ✅ Messages endpoint returns LangFlow output (both Chat Output and Text Output components)
 
 **Ready for:**
 - Creating and executing LangFlow workflows

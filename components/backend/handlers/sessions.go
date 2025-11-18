@@ -2675,7 +2675,15 @@ func GetAgenticSessionMessages(c *gin.Context) {
 				continue
 			}
 
+			// Try Chat Output format first (artifacts.message)
 			message, found, _ := unstructured.NestedString(artifacts, "message")
+
+			// If not found, try Text Output format (artifacts.text.raw)
+			if !found {
+				message, found, _ = unstructured.NestedString(artifacts, "text", "raw")
+			}
+
+			// If still not found, skip this output
 			if !found {
 				continue
 			}
