@@ -37,6 +37,10 @@ export type AgenticSessionSpec = {
 	// Multi-repo support
 	repos?: SessionRepo[];
 	mainRepoIndex?: number;
+	// LangFlow-specific fields
+	type?: string;
+	flowId?: string;
+	flowInput?: Record<string, unknown> | string;
 };
 
 // -----------------------------
@@ -138,6 +142,8 @@ export type AgenticSessionStatus = {
 	total_cost_usd?: number | null;
 	usage?: Record<string, unknown> | null;
 	result?: string | null;
+	// LangFlow-specific fields
+	flowExecutionId?: string;
 };
 
 export type AgenticSession = {

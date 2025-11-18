@@ -191,27 +191,59 @@ export const OverviewTab: React.FC<Props> = ({ session, promptExpanded, setPromp
                   </div>
                 </div>
 
-                <div>
-                  <div className="text-xs font-semibold text-muted-foreground mb-2">LLM Config</div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <p className="font-semibold">Model</p>
-                      <p className="text-muted-foreground">{session.spec.llmSettings.model}</p>
-                    </div>
-                    <div>
-                      <p className="font-semibold">Temperature</p>
-                      <p className="text-muted-foreground">{session.spec.llmSettings.temperature}</p>
-                    </div>
-                    <div>
-                      <p className="font-semibold">Max Tokens</p>
-                      <p className="text-muted-foreground">{session.spec.llmSettings.maxTokens}</p>
-                    </div>
-                    <div>
-                      <p className="font-semibold">Timeout</p>
-                      <p className="text-muted-foreground">{session.spec.timeout}s</p>
+                {/* Show LangFlow config for LangFlow sessions, LLM config for Claude Code sessions */}
+                {session.spec?.type === 'langflow' ? (
+                  <div>
+                    <div className="text-xs font-semibold text-muted-foreground mb-2">LangFlow Configuration</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {session.spec.flowId && (
+                        <div>
+                          <p className="font-semibold">Flow ID</p>
+                          <p className="text-muted-foreground font-mono text-xs">{session.spec.flowId}</p>
+                        </div>
+                      )}
+                      {session.spec.flowInput && (
+                        <div>
+                          <p className="font-semibold">Input</p>
+                          <p className="text-muted-foreground">
+                            {typeof session.spec.flowInput === 'object'
+                              ? JSON.stringify(session.spec.flowInput, null, 2)
+                              : String(session.spec.flowInput)
+                            }
+                          </p>
+                        </div>
+                      )}
+                      {session.status?.flowExecutionId && (
+                        <div>
+                          <p className="font-semibold">Flow Execution ID</p>
+                          <p className="text-muted-foreground font-mono text-xs">{session.status.flowExecutionId}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div>
+                    <div className="text-xs font-semibold text-muted-foreground mb-2">LLM Config</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <p className="font-semibold">Model</p>
+                        <p className="text-muted-foreground">{session.spec.llmSettings.model}</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold">Temperature</p>
+                        <p className="text-muted-foreground">{session.spec.llmSettings.temperature}</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold">Max Tokens</p>
+                        <p className="text-muted-foreground">{session.spec.llmSettings.maxTokens}</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold">Timeout</p>
+                        <p className="text-muted-foreground">{session.spec.timeout}s</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {k8sResources && (
                   <div>
