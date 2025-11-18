@@ -8,7 +8,7 @@ export async function GET(request: Request, { params }: Ctx) {
   try {
     const { name, sessionName } = await params;
     const headers = await buildForwardHeadersAsync(request);
-    const response = await fetch(`${BACKEND_URL}/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}`, { headers });
+    const response = await fetch(`${BACKEND_URL}/api/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}`, { headers });
     const text = await response.text();
     return new Response(text, { status: response.status, headers: { 'Content-Type': 'application/json' } });
   } catch (error) {
@@ -23,7 +23,7 @@ export async function PUT(request: Request, { params }: Ctx) {
     const { name, sessionName } = await params;
     const body = await request.text();
     const headers = await buildForwardHeadersAsync(request);
-    const response = await fetch(`${BACKEND_URL}/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}`, {
+    const response = await fetch(`${BACKEND_URL}/api/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...headers },
       body,
@@ -41,7 +41,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
   try {
     const { name, sessionName } = await params;
     const headers = await buildForwardHeadersAsync(request);
-    const response = await fetch(`${BACKEND_URL}/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}`, {
+    const response = await fetch(`${BACKEND_URL}/api/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}`, {
       method: 'DELETE',
       headers,
     });

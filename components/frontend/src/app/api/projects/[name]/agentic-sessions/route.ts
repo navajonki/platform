@@ -9,7 +9,7 @@ export async function GET(
   try {
     const { name } = await params;
     const headers = await buildForwardHeadersAsync(request);
-    const response = await fetch(`${BACKEND_URL}/projects/${encodeURIComponent(name)}/agentic-sessions`, { headers });
+    const response = await fetch(`${BACKEND_URL}/api/projects/${encodeURIComponent(name)}/agentic-sessions`, { headers });
     const text = await response.text();
     return new Response(text, { status: response.status, headers: { 'Content-Type': 'application/json' } });
   } catch (error) {
@@ -36,7 +36,7 @@ export async function POST(
       hasEmail: !!headers['X-Forwarded-Email'],
     });
     
-    const response = await fetch(`${BACKEND_URL}/projects/${encodeURIComponent(name)}/agentic-sessions`, {
+    const response = await fetch(`${BACKEND_URL}/api/projects/${encodeURIComponent(name)}/agentic-sessions`, {
       method: 'POST',
       headers,
       body,

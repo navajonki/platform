@@ -13,19 +13,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import type { CreateAgenticSessionRequest } from "@/types/agentic-session";
+import type { SessionType, LangFlowInput } from "@/types/api/sessions";
 import { Checkbox } from "@/components/ui/checkbox";
 import { successToast, errorToast } from "@/hooks/use-toast";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { RepositoryDialog } from "./repository-dialog";
 import { RepositoryList } from "./repository-list";
 import { ModelConfiguration } from "./model-configuration";
+import { SessionTypeSelector } from "./session-type-selector";
+import { LangFlowSelector } from "./langflow-selector";
+import { LangFlowInputConfig } from "./langflow-input-config";
 import { useCreateSession } from "@/services/queries/use-sessions";
 import { useRfeWorkflow } from "@/services/queries/use-rfe";
 
 const formSchema = z
   .object({
+    sessionType: z.enum(["claude-code", "langflow"]).default("claude-code"),
     prompt: z.string(),
-    model: z.string().min(1, "Please select a model"),
+    model: z.string().optional(),
     temperature: z.number().min(0).max(2),
     maxTokens: z.number().min(100).max(8000),
     timeout: z.number().min(60).max(1800),
@@ -45,14 +50,17 @@ const formSchema = z
     agentPersona: z.string().optional(),
   })
   .superRefine((data, ctx) => {
-    const isInteractive = Boolean(data.interactive);
-    const promptLength = (data.prompt || "").trim().length;
-    if (!isInteractive && promptLength < 10) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["prompt"],
-        message: "Prompt must be at least 10 characters long",
-      });
+    // Only validate prompt for Claude Code sessions
+    if (data.sessionType === "claude-code") {
+      const isInteractive = Boolean(data.interactive);
+      const promptLength = (data.prompt || "").trim().length;
+      if (!isInteractive && promptLength < 10) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["prompt"],
+          message: "Prompt must be at least 10 characters long",
+        });
+      }
     }
   });
 
@@ -67,6 +75,32 @@ export default function NewProjectSessionPage({ params }: { params: Promise<{ na
   const [editingRepoIndex, setEditingRepoIndex] = useState<number | null>(null);
   const [repoDialogOpen, setRepoDialogOpen] = useState(false);
   const [tempRepo, setTempRepo] = useState<{ input: { url: string; branch: string }; output?: { url: string; branch: string } }>({ input: { url: "", branch: "main" } });
+
+  // LangFlow state
+  const [sessionType, setSessionType] = useState<SessionType>("claude-code");
+  const [flowId, setFlowId] = useState<string>("");
+  const [flowInput, setFlowInput] = useState<LangFlowInput>({ input_value: "" });
+
+  // Add form-level validation based on session type
+  const validateForm = () => {
+    console.log('validateForm called', { sessionType, flowId, model: form.getValues("model") });
+    if (sessionType === "langflow") {
+      if (!flowId) {
+        console.error("Validation failed: no flowId");
+        errorToast("Please select a LangFlow workflow");
+        return false;
+      }
+    } else {
+      // Claude Code session
+      if (!form.getValues("model")) {
+        console.error("Validation failed: no model");
+        errorToast("Please select a model");
+        return false;
+      }
+    }
+    console.log('Validation passed');
+    return true;
+  };
 
   // React Query hooks
   const createSessionMutation = useCreateSession();
@@ -86,6 +120,7 @@ export default function NewProjectSessionPage({ params }: { params: Promise<{ na
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      sessionType: "claude-code",
       prompt: "",
       model: "claude-3-7-sonnet-latest",
       temperature: 0.7,
@@ -127,44 +162,64 @@ export default function NewProjectSessionPage({ params }: { params: Promise<{ na
   
 
   const onSubmit = async (values: FormValues) => {
-    if (!projectName) return;
+    console.log('onSubmit called', { projectName, values });
+    if (!projectName) {
+      console.error('No projectName, aborting');
+      return;
+    }
 
-    const promptToSend = values.interactive && !values.prompt.trim()
-      ? "Running in interactive mode"
-      : values.prompt;
-    const request: CreateAgenticSessionRequest = {
-      prompt: promptToSend,
-      llmSettings: {
+    // Validate form based on session type
+    if (!validateForm()) {
+      console.error('Validation failed, aborting');
+      return;
+    }
+
+    console.log('Building request...');
+    // Build request based on session type
+    const request: CreateAgenticSessionRequest & {
+      type?: SessionType;
+      flowId?: string;
+      flowInput?: LangFlowInput;
+      repos?: Array<{ input: { url: string; branch?: string }; output?: { url: string; branch?: string } }>;
+      mainRepoIndex?: number;
+    } = {
+      prompt: "",
+      timeout: values.timeout,
+    };
+
+    // Set session type
+    request.type = sessionType;
+
+    if (sessionType === "langflow") {
+      // LangFlow session
+      request.flowId = flowId;
+      request.flowInput = flowInput;
+      request.prompt = `LangFlow session: ${flowId}`;
+    } else {
+      // Claude Code session
+      const promptToSend = values.interactive && !values.prompt.trim()
+        ? "Running in interactive mode"
+        : values.prompt;
+      request.prompt = promptToSend;
+      request.llmSettings = {
         model: values.model,
         temperature: values.temperature,
         maxTokens: values.maxTokens,
-      },
-      timeout: values.timeout,
-      interactive: values.interactive,
-      autoPushOnComplete: values.autoPushOnComplete,
       };
+      request.interactive = values.interactive;
+      request.autoPushOnComplete = values.autoPushOnComplete;
 
       if (prefillWorkspacePath) {
         request.workspacePath = prefillWorkspacePath;
       }
 
-      // Apply labels if rfeWorkflowId is present
-      if (rfeWorkflowId || projectName) {
-        request.labels = {
-          ...(request.labels || {}),
-          ...(projectName ? { project: projectName } : {}),
-          ...(rfeWorkflowId ? { "rfe-workflow": rfeWorkflowId } : {}),
-        };
-      }
-
-
-      // Multi-repo configuration
+      // Multi-repo configuration (Claude Code only)
       type RepoConfig = { input: { url: string; branch?: string }; output?: { url: string; branch?: string } };
       const repos = (values.repos as RepoConfig[] | undefined) || [];
       if (Array.isArray(repos) && repos.length > 0) {
         const filteredRepos = repos.filter(r => r && r.input && r.input.url);
-        (request as CreateAgenticSessionRequest & { repos?: RepoConfig[]; mainRepoIndex?: number }).repos = filteredRepos;
-        (request as CreateAgenticSessionRequest & { repos?: RepoConfig[]; mainRepoIndex?: number }).mainRepoIndex = values.mainRepoIndex || 0;
+        request.repos = filteredRepos;
+        request.mainRepoIndex = values.mainRepoIndex || 0;
 
         // Ensure runner env receives repos JSON + main repo index for immediate compatibility
         request.environmentVariables = {
@@ -173,6 +228,17 @@ export default function NewProjectSessionPage({ params }: { params: Promise<{ na
           MAIN_REPO_INDEX: String(values.mainRepoIndex || 0),
         };
       }
+    }
+
+    // Apply labels if rfeWorkflowId is present
+    if (rfeWorkflowId || projectName) {
+      request.labels = {
+        ...(request.labels || {}),
+        ...(projectName ? { project: projectName } : {}),
+        ...(rfeWorkflowId ? { "rfe-workflow": rfeWorkflowId } : {}),
+        ...(sessionType === "langflow" ? { sessionType: "langflow" } : {}),
+      };
+    }
 
     createSessionMutation.mutate(
       { projectName, data: request },
@@ -204,29 +270,63 @@ export default function NewProjectSessionPage({ params }: { params: Promise<{ na
       <Card>
         <CardHeader>
           <CardTitle>New Agentic Session</CardTitle>
-          <CardDescription>Create a new agentic session that will analyze a website</CardDescription>
+          <CardDescription>
+            {sessionType === "langflow"
+              ? "Create a new session using a LangFlow visual workflow"
+              : "Create a new agentic session that will analyze a website"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <FormField
-                control={form.control}
-                name="interactive"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={(v) => field.onChange(Boolean(v))} />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Interactive chat</FormLabel>
-                      <FormDescription>
-                        When enabled, the session runs in chat mode. You can send messages and receive streamed responses.
-                      </FormDescription>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
+            <form
+              onSubmit={form.handleSubmit(
+                onSubmit,
+                (errors) => {
+                  console.error('Form validation errors:', errors);
+                  Object.entries(errors).forEach(([field, error]) => {
+                    console.error(`Field "${field}":`, error);
+                  });
+                }
+              )}
+              className="space-y-6"
+            >
+              {/* Session Type Selector */}
+              <SessionTypeSelector
+                value={sessionType}
+                onChange={(type) => {
+                  setSessionType(type);
+                  form.setValue("sessionType", type);
+                }}
               />
+
+              {/* Conditional rendering based on session type */}
+              {sessionType === "langflow" ? (
+                <>
+                  {/* LangFlow-specific fields */}
+                  <LangFlowSelector flowId={flowId} onChange={setFlowId} />
+                  <LangFlowInputConfig value={flowInput} onChange={setFlowInput} />
+                </>
+              ) : (
+                <>
+                  {/* Claude Code-specific fields */}
+                  <FormField
+                    control={form.control}
+                    name="interactive"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
+                        <FormControl>
+                          <Checkbox checked={field.value} onCheckedChange={(v) => field.onChange(Boolean(v))} />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel>Interactive chat</FormLabel>
+                          <FormDescription>
+                            When enabled, the session runs in chat mode. You can send messages and receive streamed responses.
+                          </FormDescription>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
               {!isInteractive && (
                 <FormField
@@ -300,27 +400,29 @@ export default function NewProjectSessionPage({ params }: { params: Promise<{ na
                 projectName={projectName}
               />
 
-              {/* Runner behavior */}
-              <FormField
-                control={form.control}
-                name="autoPushOnComplete"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={(v) => field.onChange(Boolean(v))} />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>Auto-push to Git on completion</FormLabel>
-                      <FormDescription>
-                        When enabled, the runner will commit and push changes automatically after it finishes.
-                      </FormDescription>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  {/* Runner behavior */}
+                  <FormField
+                    control={form.control}
+                    name="autoPushOnComplete"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
+                        <FormControl>
+                          <Checkbox checked={field.value} onCheckedChange={(v) => field.onChange(Boolean(v))} />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel>Auto-push to Git on completion</FormLabel>
+                          <FormDescription>
+                            When enabled, the runner will commit and push changes automatically after it finishes.
+                          </FormDescription>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              {/* Storage paths are managed automatically by the backend/operator */}
+                  {/* Storage paths are managed automatically by the backend/operator */}
+                </>
+              )}
 
               {createSessionMutation.isError && (
                 <div className="bg-red-50 border border-red-200 rounded-md p-3">

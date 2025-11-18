@@ -151,6 +151,10 @@ spec:
               flowExecutionId:
                 type: string
                 description: "LangFlow execution session ID (when type=langflow)"
+              results:
+                type: object
+                description: "LangFlow execution results (when type=langflow)"
+                x-kubernetes-preserve-unknown-fields: true
               # Result summary fields from the runner's ResultMessage
               subtype:
                 type: string

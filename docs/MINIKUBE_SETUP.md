@@ -2,67 +2,63 @@
 
 ## Summary of Setup Steps
 
-Here's a complete guide to get the platform running on Minikube from the `feat/migrate-crc-to-minikube` branch.
+Here's a complete guide to get the platform running on Minikube with LangFlow integration.
 
 ### Prerequisites
 ```bash
 # Required tools
-brew install minikube kubectl podman docker
+brew install minikube kubectl docker
+# Or use podman instead of docker
+# brew install minikube kubectl podman
 ```
 
 ### 1. Start Minikube
 ```bash
+# Start with Docker driver (recommended)
 minikube start --driver=docker
-# or
-minikube start --driver=podman
+
+# Or use podman driver
+# minikube start --driver=podman
+
+# Enable ingress addon for stable access
+minikube addons enable ingress
 ```
 
 ### 2. Build Container Images
 
-Build all component images from the project root:
+Build all component images using the Makefile:
 
 ```bash
-# Navigate to components
+# Navigate to project root
 cd /path/to/platform
 
-# Build backend
-cd components/backend
-podman build -q -t vteam-backend:latest .
+# Build all images (uses docker by default)
+make build-all CONTAINER_ENGINE=docker
 
-# Build frontend
-cd ../frontend
-podman build -q -t vteam-frontend:latest .
+# Or build individually
+make build-backend CONTAINER_ENGINE=docker
+make build-frontend CONTAINER_ENGINE=docker
+make build-operator CONTAINER_ENGINE=docker
+make build-runner CONTAINER_ENGINE=docker  # Claude Code runner
 
-# Build operator
-cd ../operator
-podman build -q -t vteam-operator:latest .
-
-# Build Claude Code runner (from runners directory!)
-cd ../runners
-podman build -q -t vteam-claude-runner:latest -f claude-code-runner/Dockerfile .
+# Build LangFlow runner
+cd components/runners/langflow-runner
+docker build -t localhost/vteam-langflow-runner:latest .
+cd ../../..
 ```
 
 ### 3. Load Images into Minikube
 
 ```bash
-# Save and load each image
-podman save localhost/vteam-backend:latest -o /tmp/backend.tar
-minikube image load /tmp/backend.tar
+# Load images directly into minikube's Docker daemon
+docker save vteam-backend:latest | docker exec -i minikube docker load
+docker save vteam-frontend:latest | docker exec -i minikube docker load
+docker save vteam-operator:latest | docker exec -i minikube docker load
+docker save vteam-runner:latest | docker exec -i minikube docker load
+docker save localhost/vteam-langflow-runner:latest | docker exec -i minikube docker load
 
-podman save localhost/vteam-frontend:latest -o /tmp/frontend.tar
-minikube image load /tmp/frontend.tar
-
-podman save localhost/vteam-operator:latest -o /tmp/operator.tar
-minikube image load /tmp/operator.tar
-
-podman save localhost/vteam-claude-runner:latest -o /tmp/claude-runner.tar
-minikube image load /tmp/claude-runner.tar
-
-# Retag images without localhost/ prefix inside minikube
-minikube ssh "docker tag localhost/vteam-backend:latest vteam-backend:latest"
-minikube ssh "docker tag localhost/vteam-frontend:latest vteam-frontend:latest"
-minikube ssh "docker tag localhost/vteam-operator:latest vteam-operator:latest"
-minikube ssh "docker tag localhost/vteam-claude-runner:latest vteam-claude-runner:latest"
+# Verify images loaded
+minikube ssh docker images | grep vteam
 ```
 
 ### 4. Deploy Platform Components
@@ -74,39 +70,70 @@ cd components/manifests
 kubectl apply -f base/namespace.yaml
 kubectl apply -f base/crds/
 kubectl apply -f base/rbac/
-kubectl apply -f minikube/local-dev-rbac.yaml
 
-# Deploy services
-kubectl apply -f minikube/backend-deployment.yaml
-kubectl apply -f minikube/frontend-deployment.yaml
-kubectl apply -f minikube/operator-deployment.yaml
-kubectl apply -f minikube/backend-service.yaml
-kubectl apply -f minikube/frontend-service.yaml
+# Deploy PostgreSQL for LangFlow
+kubectl apply -f langflow/postgres-secret.yaml
+kubectl apply -f langflow/postgres-deployment.yaml
+kubectl apply -f langflow/postgres-service.yaml
+
+# Deploy LangFlow
+kubectl apply -f langflow/deployment.yaml
+kubectl apply -f langflow/service.yaml
+kubectl apply -f langflow/ingress.yaml
+
+# Deploy backend, frontend, operator
+kubectl apply -f base/backend-deployment.yaml
+kubectl apply -f base/backend-service.yaml
+kubectl apply -f base/frontend-deployment.yaml
+kubectl apply -f base/frontend-service.yaml
+kubectl apply -f base/frontend-ingress.yaml
+kubectl apply -f base/operator-deployment.yaml
 
 # Wait for pods to be ready
+kubectl wait --for=condition=ready pod -l app=langflow-postgres -n ambient-code --timeout=180s
+kubectl wait --for=condition=ready pod -l app=langflow -n ambient-code --timeout=180s
 kubectl wait --for=condition=ready pod -l app=backend-api -n ambient-code --timeout=120s
 kubectl wait --for=condition=ready pod -l app=frontend -n ambient-code --timeout=120s
 kubectl wait --for=condition=ready pod -l app=agentic-operator -n ambient-code --timeout=120s
 ```
 
-### 5. Access the Frontend
+### 5. Configure /etc/hosts and Start Tunnel
 
 ```bash
-# Get the frontend URL
-minikube service frontend-service -n ambient-code --url
-# Example output: http://192.168.64.4:30030
+# Add entries to /etc/hosts
+echo "127.0.0.1 langflow.local backend.local frontend.local" | sudo tee -a /etc/hosts
 
-# Open in browser
-open $(minikube service frontend-service -n ambient-code --url)
+# Start minikube tunnel (in separate terminal - keep it running)
+minikube tunnel
+# Enter your password when prompted
+
+# Verify access
+curl http://langflow.local/health
+curl http://backend.local/api/cluster-info
+curl http://frontend.local
 ```
 
-### 6. Create a Project
+### 6. Access the Services
 
-The UI should now load. Create a new project (e.g., "test-web").
+Open in your browser:
+- **Frontend UI**: http://frontend.local
+- **LangFlow UI**: http://langflow.local
+- **Backend API**: http://backend.local/api/cluster-info
 
-### 7. Configure GitHub Token
+### 7. Create a Project
 
-For each project namespace, create a secret with your GitHub Personal Access Token:
+1. Access http://frontend.local
+2. Create a new project (e.g., "langflow-test")
+3. The system will create a namespace with the same name
+
+**Important:** Add the managed label to use LangFlow:
+```bash
+kubectl label namespace langflow-test ambient-code.io/managed=true
+```
+
+### 8. Configure Secrets
+
+For each project namespace, create secrets:
 
 ```bash
 # Create GitHub PAT at: https://github.com/settings/tokens
@@ -116,9 +143,15 @@ kubectl create secret generic ambient-runner-secrets \
   -n YOUR_PROJECT_NAME \
   --from-literal=GIT_TOKEN=YOUR_GITHUB_TOKEN \
   --from-literal=ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY
+
+# For LangFlow sessions, copy the langflow-secret (if API keys are enabled)
+# Note: Currently API keys are disabled for local dev, so this is optional
+kubectl get secret langflow-secret -n ambient-code -o yaml | \
+  sed 's/namespace: ambient-code/namespace: YOUR_PROJECT_NAME/' | \
+  kubectl apply -f -
 ```
 
-### 8. Configure ProjectSettings
+### 9. Configure ProjectSettings
 
 Each project needs its ProjectSettings CR configured to use the runner secrets:
 
@@ -127,6 +160,28 @@ kubectl patch projectsettings projectsettings -n YOUR_PROJECT_NAME \
   --type=merge \
   -p '{"spec":{"runnerSecretsName":"ambient-runner-secrets"}}'
 ```
+
+### 10. Create LangFlow Sessions
+
+1. Access LangFlow UI at http://langflow.local
+2. Create a new flow with:
+   - Chat Input component (input name: `input_value`)
+   - Processing components (e.g., OpenAI, prompts)
+   - Chat Output component
+3. Save the flow and note its ID
+
+4. In Ambient UI (http://frontend.local):
+   - Navigate to your project → Sessions → New Session
+   - Select "LangFlow" as session type
+   - Choose your flow from dropdown
+   - Enter input text
+   - Click "Create Session"
+
+5. Monitor execution:
+   ```bash
+   kubectl get agenticsession -n YOUR_PROJECT_NAME -w
+   kubectl logs -n YOUR_PROJECT_NAME -l session-type=langflow -f
+   ```
 
 ## Key Fixes Applied to This Branch
 

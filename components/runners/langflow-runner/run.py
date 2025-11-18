@@ -210,8 +210,8 @@ def update_session_status(namespace: str, name: str, updates: Dict[str, Any]) ->
             print("WARNING: BOT_TOKEN not set, cannot update status", file=sys.stderr)
             return
 
-        # Build status update URL: /api/projects/:project/sessions/:sessionName/status
-        url = urljoin(backend_url, f"/projects/{namespace}/sessions/{name}/status")
+        # Build status update URL: /api/projects/:project/agentic-sessions/:sessionName/status
+        url = urljoin(backend_url, f"/api/projects/{namespace}/agentic-sessions/{name}/status")
 
         headers = {
             "Content-Type": "application/json",

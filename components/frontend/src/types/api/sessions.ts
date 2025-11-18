@@ -53,6 +53,30 @@ export type SessionRepo = {
   status?: SessionRepoStatus;
 };
 
+// LangFlow integration types
+export type SessionType = 'claude-code' | 'langflow';
+
+export type LangFlowInput = Record<string, unknown>;
+
+export type LangFlowFlow = {
+  id: string;
+  name: string;
+  description: string;
+  data: Record<string, unknown>;
+  updated_at: string;
+};
+
+export type LangFlowOutput = {
+  type: string;
+  message?: string;
+  data: Record<string, unknown>;
+};
+
+export type LangFlowExecutionResponse = {
+  session_id: string;
+  outputs: LangFlowOutput[];
+};
+
 export type AgenticSessionSpec = {
   prompt: string;
   llmSettings: LLMSettings;
@@ -62,6 +86,10 @@ export type AgenticSessionSpec = {
   interactive?: boolean;
   repos?: SessionRepo[];
   mainRepoIndex?: number;
+  // LangFlow-specific fields
+  type?: SessionType;
+  flowId?: string;
+  flowInput?: LangFlowInput;
 };
 
 export type AgenticSessionStatus = {
@@ -78,6 +106,11 @@ export type AgenticSessionStatus = {
   total_cost_usd?: number | null;
   usage?: Record<string, unknown> | null;
   result?: string | null;
+  // LangFlow-specific fields
+  flowExecutionId?: string;
+  results?: {
+    outputs?: LangFlowOutput[];
+  };
 };
 
 export type AgenticSession = {
@@ -111,6 +144,10 @@ export type CreateAgenticSessionRequest = {
   resourceOverrides?: ResourceOverrides;
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
+  // LangFlow-specific fields
+  type?: SessionType;
+  flowId?: string;
+  flowInput?: LangFlowInput;
 };
 
 export type CreateAgenticSessionResponse = {

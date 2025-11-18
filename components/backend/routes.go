@@ -50,6 +50,7 @@ func registerRoutes(r *gin.Engine, jiraHandler *jira.Handler) {
 			projectGroup.POST("/agentic-sessions/:sessionName/github/abandon", handlers.AbandonSessionRepo)
 			projectGroup.GET("/agentic-sessions/:sessionName/github/diff", handlers.DiffSessionRepo)
 			projectGroup.GET("/agentic-sessions/:sessionName/k8s-resources", handlers.GetSessionK8sResources)
+			projectGroup.GET("/agentic-sessions/:sessionName/messages", handlers.GetAgenticSessionMessages)
 			projectGroup.POST("/agentic-sessions/:sessionName/spawn-content-pod", handlers.SpawnContentPod)
 			projectGroup.GET("/agentic-sessions/:sessionName/content-pod-status", handlers.GetContentPodStatus)
 			projectGroup.DELETE("/agentic-sessions/:sessionName/content-pod", handlers.DeleteContentPod)

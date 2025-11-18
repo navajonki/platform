@@ -322,7 +322,7 @@ func CreateSession(c *gin.Context) {
 		sessionType = "claude-code"
 	}
 
-	// Validate LangFlow-specific requirements
+	// Validate type-specific requirements
 	if sessionType == "langflow" {
 		// FlowID is required for langflow sessions
 		if req.FlowID == "" {
@@ -1643,6 +1643,7 @@ func UpdateSessionStatus(c *gin.Context) {
 		"phase": {}, "completionTime": {}, "cost": {}, "message": {},
 		"subtype": {}, "duration_ms": {}, "duration_api_ms": {}, "is_error": {},
 		"num_turns": {}, "session_id": {}, "total_cost_usd": {}, "usage": {}, "result": {},
+		"results": {}, "flowExecutionId": {},  // LangFlow fields
 	}
 	for k := range statusUpdate {
 		if _, ok := allowed[k]; !ok {
@@ -2599,4 +2600,117 @@ func DiffSessionRepo(c *gin.Context) {
 	defer resp.Body.Close()
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), bodyBytes)
+}
+
+// GetAgenticSessionMessages returns messages from a LangFlow session.
+// GET /api/projects/:projectName/agentic-sessions/:sessionName/messages
+func GetAgenticSessionMessages(c *gin.Context) {
+	project := c.Param("projectName")
+	sessionName := c.Param("sessionName")
+
+	// Get the session from Kubernetes
+	reqK8s, reqDyn := GetK8sClientsForRequest(c)
+	_ = reqK8s
+
+	gvr := schema.GroupVersionResource{
+		Group:    "vteam.ambient-code",
+		Version:  "v1alpha1",
+		Resource: "agenticsessions",
+	}
+
+	obj, err := reqDyn.Resource(gvr).Namespace(project).Get(c.Request.Context(), sessionName, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Session not found"})
+			return
+		}
+		log.Printf("Failed to get session %s in project %s: %v", sessionName, project, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get session"})
+		return
+	}
+
+	// Extract messages from status.results
+	status, found, err := unstructured.NestedMap(obj.Object, "status")
+	if !found || err != nil {
+		// Session exists but has no results yet
+		c.JSON(http.StatusOK, gin.H{"messages": []interface{}{}})
+		return
+	}
+
+	results, found, err := unstructured.NestedMap(status, "results")
+	if !found || err != nil {
+		c.JSON(http.StatusOK, gin.H{"messages": []interface{}{}})
+		return
+	}
+
+	outputs, found, err := unstructured.NestedSlice(results, "outputs")
+	if !found || err != nil {
+		c.JSON(http.StatusOK, gin.H{"messages": []interface{}{}})
+		return
+	}
+
+	// Transform LangFlow outputs into message format
+	messages := []map[string]interface{}{}
+	for _, output := range outputs {
+		outputMap, ok := output.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Get the outputs array from this output
+		innerOutputs, found, _ := unstructured.NestedSlice(outputMap, "outputs")
+		if !found {
+			continue
+		}
+
+		for _, innerOutput := range innerOutputs {
+			innerMap, ok := innerOutput.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Get artifacts which contains the message
+			artifacts, found, _ := unstructured.NestedMap(innerMap, "artifacts")
+			if !found {
+				continue
+			}
+
+			message, found, _ := unstructured.NestedString(artifacts, "message")
+			if !found {
+				continue
+			}
+
+			sender, _, _ := unstructured.NestedString(artifacts, "sender")
+			senderName, _, _ := unstructured.NestedString(artifacts, "sender_name")
+			componentID, _, _ := unstructured.NestedString(innerMap, "component_id")
+			componentName, _, _ := unstructured.NestedString(innerMap, "component_display_name")
+
+			// Get timestamp from results.message if available
+			timestamp := ""
+			if resultsMap, found, _ := unstructured.NestedMap(innerMap, "results"); found {
+				if messageMap, found, _ := unstructured.NestedMap(resultsMap, "message"); found {
+					timestamp, _, _ = unstructured.NestedString(messageMap, "timestamp")
+				}
+			}
+
+			// Get flowExecutionId from session status
+			flowExecutionID, _, _ := unstructured.NestedString(status, "flowExecutionId")
+
+			messages = append(messages, map[string]interface{}{
+				"sessionId": sessionName,
+				"type":      "langflow_output",
+				"timestamp": timestamp,
+				"payload": map[string]interface{}{
+					"component_id":      componentID,
+					"component_name":    componentName,
+					"flow_execution_id": flowExecutionID,
+					"sender":            sender,
+					"sender_name":       senderName,
+					"text":              message,
+				},
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"messages": messages})
 }

@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // WebSocket upgrader
@@ -140,13 +143,53 @@ func handleWebSocketPing(conn *SessionConnection) {
 }
 
 // GetSessionMessagesWS handles GET /projects/:projectName/sessions/:sessionId/messages
-// Retrieves messages from S3 storage
+// Retrieves messages from S3 storage for Claude Code sessions or CR status for LangFlow sessions
 func GetSessionMessagesWS(c *gin.Context) {
 	sessionID := c.Param("sessionId")
+	projectName := c.Param("projectName")
 
 	// Access enforced by RBAC on downstream resources
 
-	messages, err := retrieveMessagesFromS3(sessionID)
+	// Retrieve session to determine type
+	var messages []SessionMessage
+	var err error
+
+	// Try to get session type from Kubernetes
+	if handlers.DynamicClient != nil && handlers.GetAgenticSessionV1Alpha1Resource != nil {
+		gvr := handlers.GetAgenticSessionV1Alpha1Resource()
+		ctx := context.Background()
+
+		sessionObj, getErr := handlers.DynamicClient.Resource(gvr).Namespace(projectName).Get(ctx, sessionID, v1.GetOptions{})
+		if getErr == nil {
+			// Successfully retrieved session, check type
+			spec, found, _ := unstructured.NestedMap(sessionObj.Object, "spec")
+			if found {
+				sessionType, _ := spec["type"].(string)
+
+				if sessionType == "langflow" {
+					// Extract messages from LangFlow session results
+					log.Printf("GetSessionMessagesWS: LangFlow session detected, extracting messages from CR status")
+					messages, err = extractMessagesFromLangFlowSession(sessionObj, sessionID)
+				} else {
+					// Default to S3 retrieval for Claude Code sessions
+					log.Printf("GetSessionMessagesWS: Claude Code session, retrieving from S3")
+					messages, err = retrieveMessagesFromS3(sessionID)
+				}
+			} else {
+				// No spec found, default to S3
+				messages, err = retrieveMessagesFromS3(sessionID)
+			}
+		} else {
+			// Could not retrieve session (maybe doesn't exist or no permissions), try S3
+			log.Printf("GetSessionMessagesWS: Could not retrieve session from K8s (%v), falling back to S3", getErr)
+			messages, err = retrieveMessagesFromS3(sessionID)
+		}
+	} else {
+		// DynamicClient not available, fall back to S3
+		log.Printf("GetSessionMessagesWS: DynamicClient not available, using S3")
+		messages, err = retrieveMessagesFromS3(sessionID)
+	}
+
 	if err != nil {
 		log.Printf("getSessionMessagesWS: retrieve failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -155,7 +198,7 @@ func GetSessionMessagesWS(c *gin.Context) {
 		return
 	}
 
-	// Optional consolidation of partial messages
+	// Optional consolidation of partial messages (for Claude Code sessions)
 	includeParam := strings.ToLower(strings.TrimSpace(c.Query("include_partial_messages")))
 	includePartials := includeParam == "1" || includeParam == "true" || includeParam == "yes"
 
@@ -221,3 +264,125 @@ func PostSessionMessageWS(c *gin.Context) {
 // NOTE: GetSessionMessagesClaudeFormat removed - session continuation now uses
 // SDK's built-in resume functionality with persisted ~/.claude state
 // See: https://docs.claude.com/en/api/agent-sdk/sessions
+
+// extractMessagesFromLangFlowSession extracts messages from a LangFlow session's CR status
+// LangFlow results are stored in status.results.outputs as complex nested JSON
+// This function transforms them into SessionMessage format for display in the UI
+func extractMessagesFromLangFlowSession(sessionObj *unstructured.Unstructured, sessionID string) ([]SessionMessage, error) {
+	messages := []SessionMessage{}
+
+	// Extract status.results
+	status, found, err := unstructured.NestedMap(sessionObj.Object, "status")
+	if err != nil {
+		return nil, fmt.Errorf("error accessing status: %w", err)
+	}
+	if !found {
+		// No status yet, return empty messages
+		return messages, nil
+	}
+
+	results, found := status["results"].(map[string]interface{})
+	if !found {
+		// No results yet, return empty messages
+		return messages, nil
+	}
+
+	// Extract flowExecutionId if available
+	flowExecutionID, _ := status["flowExecutionId"].(string)
+
+	// Extract outputs array from results
+	outputs, ok := results["outputs"].([]interface{})
+	if !ok {
+		log.Printf("LangFlow session %s: results.outputs is not an array", sessionID)
+		return messages, nil
+	}
+
+	// Parse LangFlow's complex output structure
+	// LangFlow returns: {outputs: [{inputs: {}, outputs: [{results: {...}}]}]}
+	for idx, outputItem := range outputs {
+		outputMap, ok := outputItem.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Extract the nested outputs array
+		nestedOutputs, ok := outputMap["outputs"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for nestedIdx, nestedOutput := range nestedOutputs {
+			nestedMap, ok := nestedOutput.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Extract results
+			resultsData, ok := nestedMap["results"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Look for message data in results
+			messageData, ok := resultsData["message"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Extract text content
+			textContent, _ := messageData["text"].(string)
+			sender, _ := messageData["sender"].(string)
+			senderName, _ := messageData["sender_name"].(string)
+			timestamp, _ := messageData["timestamp"].(string)
+
+			// Default timestamp if not provided
+			if timestamp == "" {
+				timestamp = time.Now().UTC().Format(time.RFC3339)
+			}
+
+			// Create SessionMessage
+			msg := SessionMessage{
+				SessionID: sessionID,
+				Type:      "langflow_output",
+				Timestamp: timestamp,
+				Payload: map[string]interface{}{
+					"text":              textContent,
+					"sender":            sender,
+					"sender_name":       senderName,
+					"flow_execution_id": flowExecutionID,
+					"output_index":      idx,
+					"nested_index":      nestedIdx,
+					"component_id":      nestedMap["component_id"],
+					"component_name":    nestedMap["component_display_name"],
+				},
+			}
+
+			messages = append(messages, msg)
+		}
+	}
+
+	// If no messages were extracted, create a summary message
+	if len(messages) == 0 && len(outputs) > 0 {
+		// Create a summary message showing the session completed
+		completionTime, _ := status["completionTime"].(string)
+		if completionTime == "" {
+			completionTime = time.Now().UTC().Format(time.RFC3339)
+		}
+
+		summaryMsg := SessionMessage{
+			SessionID: sessionID,
+			Type:      "langflow_summary",
+			Timestamp: completionTime,
+			Payload: map[string]interface{}{
+				"message":           "LangFlow execution completed",
+				"flow_execution_id": flowExecutionID,
+				"output_count":      len(outputs),
+				"outputs":           outputs, // Include raw outputs for debugging
+			},
+		}
+		messages = append(messages, summaryMsg)
+	}
+
+	log.Printf("Extracted %d messages from LangFlow session %s", len(messages), sessionID)
+	return messages, nil
+}

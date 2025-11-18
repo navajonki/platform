@@ -74,7 +74,7 @@ type CreateAgenticSessionRequest struct {
 	FlowID    string                 `json:"flowId,omitempty"`
 	FlowInput map[string]interface{} `json:"flowInput,omitempty"`
 	// Existing fields
-	Prompt          string       `json:"prompt" binding:"required"`
+	Prompt          string       `json:"prompt"`
 	DisplayName     string       `json:"displayName,omitempty"`
 	LLMSettings     *LLMSettings `json:"llmSettings,omitempty"`
 	Timeout         *int         `json:"timeout,omitempty"`

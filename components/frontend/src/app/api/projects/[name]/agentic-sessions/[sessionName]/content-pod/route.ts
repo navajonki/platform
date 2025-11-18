@@ -8,7 +8,7 @@ export async function DELETE(
   const { name, sessionName } = await params;
   const headers = await buildForwardHeadersAsync(request);
   const resp = await fetch(
-    `${BACKEND_URL}/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}/content-pod`,
+    `${BACKEND_URL}/api/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}/content-pod`,
     { method: 'DELETE', headers }
   );
   const data = await resp.text();

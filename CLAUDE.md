@@ -217,6 +217,91 @@ make dev-test              # Run smoke tests
 make dev-test-operator     # Test operator only
 ```
 
+### LangFlow Development Requirements
+
+**CRITICAL**: When working on LangFlow integration, you MUST verify the complete end-to-end workflow, not just individual components.
+
+**Complete Workflow Requirements:**
+
+1. **Visual Flow Design**: Users must be able to access LangFlow UI to visually design and edit flows
+2. **Flow Execution**: Flows must be callable from the Ambient UI (create session with flowId)
+3. **Message Display**: LangFlow responses must appear in Ambient UI session messages
+4. **Status Updates**: Session status must show `results` and `flowExecutionId` fields populated
+
+**Stable LangFlow UI Access (Development):**
+
+Port-forwards (`kubectl port-forward`) are inherently unstable and can die unexpectedly. Use these stable alternatives:
+
+**Option 1: Minikube Ingress (Recommended for Minikube)**
+```bash
+# Enable ingress addon
+minikube addons enable ingress
+
+# Create ingress for LangFlow (add to manifests)
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: langflow-ingress
+  namespace: ambient-code
+spec:
+  rules:
+  - host: langflow.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: langflow
+            port:
+              number: 7860
+EOF
+
+# Add to /etc/hosts
+echo "$(minikube ip) langflow.local" | sudo tee -a /etc/hosts
+
+# Access at: http://langflow.local
+```
+
+**Option 2: NodePort Service (Quick Alternative)**
+```bash
+# Patch LangFlow service to NodePort
+kubectl patch service langflow -n ambient-code -p '{"spec":{"type":"NodePort"}}'
+
+# Get the URL (stable, doesn't die)
+minikube service langflow -n ambient-code --url
+# Example output: http://192.168.49.2:31234
+```
+
+**Option 3: Port-Forward with Auto-Restart (Last Resort)**
+```bash
+# Use a loop to auto-restart port-forward
+while true; do
+  kubectl port-forward svc/langflow 7860:7860 -n ambient-code
+  echo "Port-forward died, restarting in 2s..."
+  sleep 2
+done
+```
+
+**End-to-End Verification Checklist:**
+
+Before considering LangFlow work complete, verify ALL of these:
+
+- [ ] LangFlow UI is accessible and stable (use Ingress or NodePort, NOT port-forward)
+- [ ] Can visually edit flows in LangFlow UI
+- [ ] Can create LangFlow session from Ambient UI (http://localhost:3000)
+- [ ] Session executes and completes successfully
+- [ ] Session status shows `flowExecutionId` (not null)
+- [ ] Session status shows `results` with LangFlow output (not null)
+- [ ] Messages endpoint returns LangFlow responses: `/api/projects/{project}/agentic-sessions/{name}/messages`
+- [ ] Messages display correctly in Ambient UI session view
+- [ ] Backend logs show successful PUT to `/api/projects/{project}/agentic-sessions/{name}/status`
+
+**Architecture Note:**
+
+Runner pods access LangFlow via cluster DNS (`http://langflow.ambient-code.svc.cluster.local:7860`), which is always stable. The LangFlow UI access (for human users) is separate and should use Ingress or NodePort for stability during development.
+
 ## Key Architecture Patterns
 
 ### Custom Resource Definitions (CRDs)

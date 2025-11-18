@@ -374,6 +374,24 @@ func handleClaudeCodeSession(obj *unstructured.Unstructured) error {
 	// Read autoPushOnComplete flag
 	autoPushOnComplete, _, _ := unstructured.NestedBool(spec, "autoPushOnComplete")
 
+	// Wait for runner token secret to exist (avoid race condition with backend)
+	annotations = obj.GetAnnotations()
+	tokenSecretName := annotations["ambient-code.io/runner-token-secret"]
+	if tokenSecretName != "" {
+		_, secretErr := config.K8sClient.CoreV1().Secrets(sessionNamespace).Get(context.TODO(), tokenSecretName, v1.GetOptions{})
+		if secretErr != nil {
+			if errors.IsNotFound(secretErr) {
+				log.Printf("Token secret %s not yet created for session %s, will retry on next watch event", tokenSecretName, name)
+				// Don't update status to Error - this is expected during creation
+				// The backend is still creating the secret; we'll retry when we see the next event
+				return nil
+			}
+			log.Printf("Error checking token secret %s: %v", tokenSecretName, secretErr)
+			return secretErr
+		}
+		log.Printf("✓ Token secret %s exists for session %s", tokenSecretName, name)
+	}
+
 	// Create the Job
 	job := &batchv1.Job{
 		ObjectMeta: v1.ObjectMeta{
@@ -768,6 +786,21 @@ func handleLangFlowSession(obj *unstructured.Unstructured) error {
 		return nil
 	}
 
+	// Wait for runner token secret to exist (avoid race condition with backend)
+	tokenSecretName := fmt.Sprintf("ambient-runner-token-%s", name)
+	_, err = config.K8sClient.CoreV1().Secrets(sessionNamespace).Get(context.TODO(), tokenSecretName, v1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Printf("Token secret %s not yet created for session %s, will retry on next watch event", tokenSecretName, name)
+			// Don't update status to Error - this is expected during creation
+			// The backend is still creating the secret; we'll retry when we see the next event
+			return nil
+		}
+		log.Printf("Error checking token secret %s: %v", tokenSecretName, err)
+		return err
+	}
+	log.Printf("✓ Token secret %s exists for session %s", tokenSecretName, name)
+
 	// Create Job for langflow-runner
 	job := &batchv1.Job{
 		ObjectMeta: v1.ObjectMeta{
@@ -812,17 +845,7 @@ func handleLangFlowSession(obj *unstructured.Unstructured) error {
 								{Name: "FLOW_ID", Value: flowID},
 								{Name: "FLOW_INPUT", Value: string(flowInputJSON)},
 								{Name: "LANGFLOW_URL", Value: "http://langflow.ambient-code.svc.cluster.local:7860"},
-								{
-									Name: "LANGFLOW_API_KEY",
-									ValueFrom: &corev1.EnvVarSource{
-										SecretKeyRef: &corev1.SecretKeySelector{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: "langflow-secret",
-											},
-											Key: "api-key",
-										},
-									},
-								},
+								// LANGFLOW_API_KEY removed - LangFlow has LANGFLOW_ENABLE_API_KEY=false for local dev
 								{Name: "SESSION_NAME", Value: name},
 								{Name: "NAMESPACE", Value: sessionNamespace},
 								{Name: "BACKEND_API_URL", Value: fmt.Sprintf("http://backend-service.%s.svc.cluster.local:8080/api", appConfig.BackendNamespace)},

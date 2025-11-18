@@ -8,7 +8,7 @@ export async function GET(
   const { name, sessionName } = await params;
   const headers = await buildForwardHeadersAsync(request);
   const resp = await fetch(
-    `${BACKEND_URL}/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}/content-pod-status`,
+    `${BACKEND_URL}/api/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}/content-pod-status`,
     { headers }
   );
   const data = await resp.text();

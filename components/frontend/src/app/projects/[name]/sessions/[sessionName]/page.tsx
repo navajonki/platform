@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
-import { ArrowLeft, Square, Trash2, Copy, Play, MoreVertical } from "lucide-react";
+import { ArrowLeft, Square, Trash2, Copy, Play, MoreVertical, Workflow } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 // Custom components
@@ -360,6 +360,19 @@ export default function ProjectSessionDetailPage({
         }
         case "agent.waiting": {
           agenticMessages.push({ type: "agent_waiting", timestamp: innerTs });
+          break;
+        }
+        case "langflow_output": {
+          // Extract text from LangFlow output payload
+          const text = (innerPayload?.text as string | undefined) || "";
+          if (text) {
+            agenticMessages.push({
+              type: "agent_message",
+              content: { type: "text_block", text },
+              model: "langflow",
+              timestamp: innerTs,
+            });
+          }
           break;
         }
         default: {
@@ -742,6 +755,12 @@ export default function ProjectSessionDetailPage({
               <Badge className={getPhaseColor(session.status?.phase || "Pending")}>
                 {session.status?.phase || "Pending"}
               </Badge>
+              {session.spec?.type === 'langflow' && (
+                <Badge variant="secondary" className="flex items-center gap-1">
+                  <Workflow className="h-3 w-3" />
+                  LangFlow
+                </Badge>
+              )}
             </h1>
             {session.spec.displayName && (
               <div className="text-sm text-gray-500">{session.metadata.name}</div>

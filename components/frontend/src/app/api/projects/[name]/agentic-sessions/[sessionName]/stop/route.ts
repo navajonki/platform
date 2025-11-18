@@ -8,7 +8,7 @@ export async function POST(
   try {
     const { name, sessionName } = await params;
     const headers = await buildForwardHeadersAsync(request);
-    const response = await fetch(`${BACKEND_URL}/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}/stop`, {
+    const response = await fetch(`${BACKEND_URL}/api/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}/stop`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
     });

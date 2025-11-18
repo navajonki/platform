@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
-import { Plus, RefreshCw, MoreVertical, Square, Trash2, ArrowRight, Brain } from 'lucide-react';
+import { Plus, RefreshCw, MoreVertical, Square, Trash2, ArrowRight, Brain, Workflow } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ProjectSubpageHeader } from '@/components/project-subpage-header';
 import { EmptyState } from '@/components/empty-state';
@@ -180,14 +181,30 @@ export default function ProjectSessionsListPage() {
                           <SessionPhaseBadge phase={phase} />
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs px-2 py-1 rounded border bg-gray-50">
-                            {session.spec?.interactive ? 'Interactive' : 'Headless'}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            {session.spec?.type === 'langflow' ? (
+                              <Badge variant="secondary" className="w-fit flex items-center gap-1">
+                                <Workflow className="h-3 w-3" />
+                                LangFlow
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="w-fit">Claude Code</Badge>
+                            )}
+                            {session.spec?.type !== 'langflow' && (
+                              <span className="text-xs text-gray-500">
+                                {session.spec?.interactive ? 'Interactive' : 'Headless'}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
-                          <span className="text-sm text-gray-600 truncate max-w-[120px] block">
-                            {session.spec.llmSettings.model}
-                          </span>
+                          {session.spec?.llmSettings?.model ? (
+                            <span className="text-sm text-gray-600 truncate max-w-[120px] block">
+                              {session.spec.llmSettings.model}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-gray-400">—</span>
+                          )}
                         </TableCell>
                         <TableCell className="hidden lg:table-cell">
                           {session.metadata?.creationTimestamp &&

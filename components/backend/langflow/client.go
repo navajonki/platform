@@ -2,10 +2,12 @@ package langflow
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -80,6 +82,8 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept-Encoding", "gzip, deflate")
 	if c.APIKey != "" {
 		req.Header.Set("x-api-key", c.APIKey)
 	}
@@ -87,6 +91,26 @@ func (c *Client) doRequest(method, path string, body interface{}) (*http.Respons
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
+	}
+
+	// Handle gzip-encoded responses
+	if strings.Contains(resp.Header.Get("Content-Encoding"), "gzip") {
+		gzReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		// Replace the response body with the decompressed version
+		resp.Body = io.NopCloser(io.TeeReader(gzReader, io.Discard))
+		// Create a new response with decompressed body
+		decompressed, err := io.ReadAll(gzReader)
+		if err != nil {
+			gzReader.Close()
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to decompress response: %w", err)
+		}
+		gzReader.Close()
+		resp.Body = io.NopCloser(bytes.NewReader(decompressed))
 	}
 
 	return resp, nil
@@ -109,7 +133,7 @@ func (c *Client) CheckHealth() error {
 
 // ListFlows retrieves all available flows from LangFlow
 func (c *Client) ListFlows() ([]Flow, error) {
-	resp, err := c.doRequest("GET", "/api/v1/flows", nil)
+	resp, err := c.doRequest("GET", "/api/v1/flows/", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list flows: %w", err)
 	}

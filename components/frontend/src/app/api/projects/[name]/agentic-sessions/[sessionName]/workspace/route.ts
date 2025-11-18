@@ -12,7 +12,7 @@ export async function GET(
   const subpath = url.searchParams.get('path')
   const query = subpath ? `?path=${encodeURIComponent(subpath)}` : ''
   const resp = await fetch(
-    `${BACKEND_URL}/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}/workspace${query}`,
+    `${BACKEND_URL}/api/projects/${encodeURIComponent(name)}/agentic-sessions/${encodeURIComponent(sessionName)}/workspace${query}`,
     { headers },
   )
   const contentType = resp.headers.get('content-type') || 'application/json'

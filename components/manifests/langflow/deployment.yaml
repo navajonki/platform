@@ -49,8 +49,10 @@ spec:
         - containerPort: 7860
           name: http
         env:
-        - name: LANGFLOW_DATABASE_URL
-          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@langflow-postgres:5432/$(POSTGRES_DB)"
+        - name: POSTGRES_HOST
+          value: "langflow-postgres"
+        - name: POSTGRES_PORT
+          value: "5432"
         - name: POSTGRES_USER
           valueFrom:
             secretKeyRef:
