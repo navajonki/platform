@@ -51,6 +51,19 @@ type contentListItem struct {
 func parseSpec(spec map[string]interface{}) types.AgenticSessionSpec {
 	result := types.AgenticSessionSpec{}
 
+	// LangFlow-specific fields
+	if sessionType, ok := spec["type"].(string); ok {
+		result.Type = sessionType
+	}
+
+	if flowID, ok := spec["flowId"].(string); ok {
+		result.FlowID = flowID
+	}
+
+	if flowInput, ok := spec["flowInput"].(map[string]interface{}); ok {
+		result.FlowInput = flowInput
+	}
+
 	if prompt, ok := spec["prompt"].(string); ok {
 		result.Prompt = prompt
 	}
@@ -208,6 +221,11 @@ func parseStatus(status map[string]interface{}) *types.AgenticSessionStatus {
 
 	if jobName, ok := status["jobName"].(string); ok {
 		result.JobName = jobName
+	}
+
+	// LangFlow execution tracking
+	if flowExecutionID, ok := status["flowExecutionId"].(string); ok {
+		result.FlowExecutionID = flowExecutionID
 	}
 
 	// New: result summary fields (top-level in status)
