@@ -1,7 +1,7 @@
 # LangFlow Integration - Current Status
 
-**Last Updated**: 2025-11-18 19:00 UTC
-**Status**: ✅ **WORKING END-TO-END**
+**Last Updated**: 2025-11-18 21:15 UTC
+**Status**: ✅ **WORKING END-TO-END** (Input handling fixed)
 
 ## Quick Access
 
@@ -123,6 +123,38 @@ if !found {
   value: "local"
 ```
 
+### 9. LangFlow Input Handling Workaround
+**Problem**: TextInput/ChatInput components don't work with LangFlow REST API (`/api/v1/run/{flowId}`). When sending `inputs` parameter, flow receives empty `{}` and ignores user input. These components only work in Playground (websocket mode).
+**Root Cause**: LangFlow's REST API execution path doesn't populate TextInput component values from the `inputs` parameter.
+**Fix**: Runner bypasses TextInput entirely and injects input directly into LLM component via `tweaks`:
+**Location**: `components/runners/langflow-runner/run.py:103-170`
+
+**How it works**:
+1. Fetch flow structure via `/api/v1/flows/{flowId}`
+2. Find LLM components by type matching (`LanguageModel`, `OpenAI`, `Anthropic`, `Model`)
+3. Build `tweaks` object to set `input_value` directly on LLM component(s)
+4. Send flow execution request with `tweaks` instead of `inputs`
+
+**Example**:
+```python
+# Before (broken):
+payload = {"inputs": {"input_value": "What is 12 + 34?"}}
+# Result: Flow receives inputs={}, returns generic response
+
+# After (working):
+payload = {
+    "tweaks": {
+        "LanguageModelComponent-xEYFI": {
+            "input_value": "What is 12 + 34?"
+        }
+    },
+    "output_type": "text"
+}
+# Result: Flow processes input, returns "12 + 34 = **46**" ✅
+```
+
+**Tested**: Session `agentic-session-1763500351` with input "What is 12 + 34?" correctly returned "46"
+
 ## 📦 Container Images (in minikube)
 
 ```
@@ -196,7 +228,33 @@ kubectl get agenticsession SESSION_NAME -n langflow-test -o yaml
 #   flowExecutionId: "langflow-session-xyz"
 #   results:
 #     outputs: [...]
+
+# Check messages endpoint
+curl "http://backend.local/api/projects/langflow-test/agentic-sessions/SESSION_NAME/messages"
 ```
+
+## ✅ Test Results
+
+**Test Session**: `agentic-session-1763500351` (2025-11-18 21:12 UTC)
+
+**Input**: `{"input_value": "What is 12 + 34?"}`
+
+**Expected**: Math answer "46"
+
+**Result**: ✅ **SUCCESS**
+```
+"12 + 34 = **46**."
+```
+
+**Verification**:
+- ✅ Session completed with `phase: Completed`
+- ✅ `flowExecutionId` populated
+- ✅ Results contain correct output
+- ✅ Messages endpoint returns text from `artifacts.text.raw`
+- ✅ Input successfully passed via tweaks workaround
+- ✅ Math calculation performed correctly
+
+**Note**: The response also includes additional text from the flow's system prompt ("If you're looking to build something..."). This is expected behavior from the flow's Prompt component configuration, not a runner issue.
 
 ## 📝 Architecture Flow
 
@@ -309,10 +367,12 @@ kubectl label namespace YOUR_PROJECT ambient-code.io/managed=true
 - ✅ Flow listing in Ambient frontend dropdown
 - ✅ Session creation from Ambient UI
 - ✅ Job creation by operator
-- ✅ Flow execution via LangFlow API
+- ✅ Flow execution via LangFlow API with input handling (via tweaks workaround)
+- ✅ User input correctly passed to LLM components
 - ✅ Status updates to backend
 - ✅ Results displayed in Ambient UI
 - ✅ Messages endpoint returns LangFlow output (both Chat Output and Text Output components)
+- ✅ Math questions return correct calculated answers
 
 **Ready for:**
 - Creating and executing LangFlow workflows

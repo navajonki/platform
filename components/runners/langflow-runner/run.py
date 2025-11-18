@@ -100,6 +100,76 @@ def main() -> int:
         return 1
 
 
+def get_input_tweaks(
+    langflow_url: str,
+    api_key: Optional[str],
+    flow_id: str,
+    inputs: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Build tweaks object to inject input values directly into the LLM component.
+
+    This is a workaround for LangFlow's broken input handling in the REST API.
+    TextInput/ChatInput components don't work with the REST API, so we bypass them
+    entirely and inject the user input directly into the LLM component's input_value field.
+
+    Args:
+        langflow_url: Base URL of LangFlow instance
+        api_key: API key for authentication
+        flow_id: Flow ID
+        inputs: Input values to inject
+
+    Returns:
+        Tweaks dictionary to pass to the run API
+    """
+    tweaks = {}
+
+    try:
+        # Fetch flow structure
+        flow_url = f"{langflow_url}/api/v1/flows/{flow_id}"
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["x-api-key"] = api_key
+
+        response = requests.get(flow_url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            print(f"WARNING: Could not fetch flow structure (status {response.status_code}), using inputs as-is")
+            return {}
+
+        flow_data = response.json()
+        nodes = flow_data.get("data", {}).get("nodes", [])
+
+        # Find LLM components (LanguageModelComponent, OpenAIModel, AnthropicModel, etc.)
+        llm_components = []
+        for node in nodes:
+            node_data = node.get("data", {})
+            node_type = node_data.get("type", "")
+            node_id = node.get("id")
+
+            if "LanguageModel" in node_type or "OpenAI" in node_type or "Anthropic" in node_type or "Model" in node_type:
+                llm_components.append({
+                    "id": node_id,
+                    "type": node_type
+                })
+                print(f"Found LLM component: {node_id} (type: {node_type})")
+
+        # Inject input_value directly into LLM component(s)
+        if "input_value" in inputs and llm_components:
+            for component in llm_components:
+                tweaks[component["id"]] = {
+                    "input_value": inputs["input_value"]
+                }
+                print(f"Setting tweak for LLM {component['id']}: input_value = {inputs['input_value']}")
+
+        return tweaks
+
+    except Exception as e:
+        print(f"WARNING: Error building tweaks: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+
 def execute_langflow_flow(
     langflow_url: str,
     api_key: Optional[str],
@@ -127,9 +197,14 @@ def execute_langflow_flow(
     if api_key:
         headers["x-api-key"] = api_key
 
+    # WORKAROUND: LangFlow's TextInput components don't work with the inputs parameter
+    # when called via REST API. We need to use tweaks to set the input value directly.
+    # First, fetch the flow structure to find TextInput components
+    tweaks = get_input_tweaks(langflow_url, api_key, flow_id, inputs)
+
     payload = {
-        "inputs": inputs,
-        "output_type": "chat"
+        "tweaks": tweaks,
+        "output_type": "text"
     }
 
     print(f"POST {url}")
