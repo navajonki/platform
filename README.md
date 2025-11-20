@@ -136,6 +136,35 @@ kubectl port-forward svc/frontend-service 3000:3000 -n ambient-code
 - **Research & Analysis**: Technology research, competitive analysis, requirement gathering
 - **Development Workflows**: Code reviews, testing strategies, deployment planning
 
+## LangFlow Integration
+
+The platform supports **LangFlow** for visual workflow design and execution, enabling no-code/low-code AI workflow creation alongside Claude Code sessions.
+
+### Features
+
+- **Visual Flow Designer**: Create AI workflows using LangFlow's drag-and-drop interface
+- **Dual Session Types**: Run both Claude Code sessions and LangFlow workflows from the same UI
+- **Unified Monitoring**: Track LangFlow executions with the same status/monitoring as Claude Code sessions
+- **PostgreSQL Backend**: Persistent flow storage and execution history
+
+### Setup & Documentation
+
+- **Setup Guide**: [docs/LANGFLOW_SETUP.md](docs/LANGFLOW_SETUP.md) - Complete installation and configuration
+- **Current Status**: [LANGFLOW_SESSION_STATUS.md](LANGFLOW_SESSION_STATUS.md) - Implementation status and verification
+- **Design Document**: [docs/design/langflow-integration.md](docs/design/langflow-integration.md) - Architecture details
+
+### Quick Start
+
+After deploying the platform with LangFlow enabled:
+
+1. Access LangFlow UI at `http://langflow.local` (local dev) or your configured route
+2. Create a visual workflow in LangFlow
+3. In the Ambient UI, select "LangFlow" session type
+4. Choose your flow and provide input parameters
+5. Monitor execution and view results in the session detail page
+
+**Note**: LangFlow integration requires additional setup beyond the base platform deployment. See [docs/LANGFLOW_SETUP.md](docs/LANGFLOW_SETUP.md) for details.
+
 ## Advanced Configuration
 
 ### Building Custom Images
@@ -323,11 +352,8 @@ make local-start
 ```
 
 **What this provides:**
-- ✅ Local Kubernetes cluster with minikube
+- ✅ Local Kubernetes cluster with minikube (Docker driver)
 - ✅ No authentication required - automatic login as "developer"
-- ✅ Full OpenShift cluster with CRC
-- ✅ Real OpenShift authentication and RBAC
-- ✅ Production-like environment
 - ✅ Automatic image builds and deployments
 - ✅ Working frontend-backend integration
 - ✅ Ingress configuration for easy access
@@ -335,17 +361,31 @@ make local-start
 
 **Prerequisites:**
 ```bash
+# Install Docker Desktop (required - minikube uses Docker driver)
+# Download from https://www.docker.com/products/docker-desktop
+
 # Install minikube and kubectl (macOS)
 brew install minikube kubectl
 
-# Then start development
-make local-start
+# Start minikube with Docker driver (default on macOS)
+minikube start
+
+# Enable ingress for stable DNS-based access
+minikube addons enable ingress
+
+# Configure /etc/hosts for local DNS (one-time setup)
+echo "127.0.0.1 frontend.local backend.local langflow.local" | sudo tee -a /etc/hosts
+
+# Start minikube tunnel (required for ingress - keep running in separate terminal)
+minikube tunnel
 ```
 
-**Local MiniKube Access URLs:**
+**Local Minikube Access URLs (with ingress):**
+- Frontend: `http://frontend.local`
+- Backend API: `http://backend.local`
+- LangFlow: `http://langflow.local` (if LangFlow is deployed)
 
-
-Or using NodePort (no /etc/hosts needed):
+**Alternative: Using NodePort (no /etc/hosts or tunnel needed):**
 - Frontend: `http://$(minikube ip):30030`
 - Backend: `http://$(minikube ip):30080`
 
